@@ -7,9 +7,15 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#151a2b">
 <title>Vorlesen</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&display=swap" rel="stylesheet">
 <style>
+  /* Lokal ausgeliefert, damit die Seite nur mit dem Heimnetz auskommt (ADR 0002) */
+  @font-face {
+    font-family: "Literata";
+    src: url("/static/fonts/literata-latin-opsz-normal.woff2") format("woff2");
+    font-weight: 200 900;
+    font-style: normal;
+    font-display: swap;
+  }
   :root {
     --night: #151a2b;
     --dusk: #1e2540;
