@@ -6,6 +6,8 @@ Date: 2026-09-19
 
 Accepted
 
+Amended by 0006
+
 ## Context
 
 The app plays sounds and switches Hue light scenes while reading picture books aloud. It is operated from an iPad or iPhone in the home network.
