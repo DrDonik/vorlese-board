@@ -9,9 +9,14 @@ Nur Python-Standardbibliothek. Start:
 Ohne config.json laeuft der Server im Trockenmodus: Szenenaufrufe werden
 nur protokolliert, Sounds funktionieren trotzdem.
 """
+import hashlib
 import json
+import os
+import re
 import ssl
 import sys
+import threading
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,6 +32,9 @@ PORT = 8765
 BOOK_FIELDS = {"title", "cues"}
 CUE_FIELDS = {"label", "scene", "loop", "oneshot", "triggers"}
 SCENE_FIELDS = {"name", "room", "dynamic"}
+SOUND_TYPES = {".mp3", ".m4a", ".wav", ".aac"}
+MAX_BODY = 1_000_000
+BOOK_LOCK = threading.Lock()  # Vergleichen und Schreiben einer Buchdatei am Stueck
 
 
 def load_config():
@@ -115,17 +123,66 @@ def read_book(path):
     """Buchdatei lesen: (Daten, None) oder (None, Grund), wenn sie sich nicht oeffnen laesst."""
     if not valid_book_id(path.stem):
         return None, "Dateiname darf nur Buchstaben, Ziffern, - und _ enthalten"
+    return parse_book(path.read_bytes())
+
+
+def parse_book(raw):
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as e:
         return None, f"JSON-Fehler in Zeile {e.lineno}, Spalte {e.colno}: {e.msg}"
     except UnicodeDecodeError:
         return None, "Datei ist nicht als UTF-8 gespeichert"
+    error = structure_error(data)
+    return (None, error) if error else (data, None)
+
+
+def structure_error(data):
+    """Grund, warum sich ein Buch gar nicht oeffnen liesse, sonst None."""
     if not isinstance(data, dict) or not isinstance(data.get("cues"), list):
-        return None, "Erwartet: ein Objekt mit einer Liste «cues»"
+        return "Erwartet: ein Objekt mit einer Liste «cues»"
     if not all(isinstance(c, dict) for c in data["cues"]):
-        return None, "Jeder Moment in «cues» muss ein Objekt sein"
-    return data, None
+        return "Jeder Moment in «cues» muss ein Objekt sein"
+    return None
+
+
+def book_version(raw):
+    """Kennung eines Dateistands, damit der Editor nichts Fremdes ueberschreibt."""
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def format_book(data):
+    """Buch als JSON mit einem Moment pro Zeile: kurze Diffs, gut von Hand zu bearbeiten."""
+    def compact(value):
+        return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
+    fields = []
+    for key, value in data.items():
+        if key == "cues" and value:
+            cues = ",\n".join(f"    {compact(c)}" for c in value)
+            fields.append(f"  {compact(key)}: [\n{cues}\n  ]")
+        else:
+            fields.append(f"  {compact(key)}: {compact(value)}")
+    return "{\n" + ",\n".join(fields) + "\n}\n"
+
+
+def write_book(path, text):
+    """Atomar schreiben: Wer die Datei liest, sieht den alten oder den neuen Stand."""
+    tmp = path.with_name(f".{path.stem}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def new_book_id(title):
+    """Freier Dateiname aus dem Titel: «Der Grüffelo» -> der-grueffelo."""
+    slug = unicodedata.normalize("NFC", title.lower())
+    for umlaut, plain in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        slug = slug.replace(umlaut, plain)
+    slug = unicodedata.normalize("NFKD", slug).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")[:60].strip("-") or "buch"
+    candidate, n = slug, 2
+    while (BOOKS_DIR / f"{candidate}.json").exists():
+        candidate, n = f"{slug}-{n}", n + 1
+    return candidate
 
 
 def sound_exists(name):
@@ -137,31 +194,42 @@ def sound_exists(name):
 
 
 def book_problems(data, scenes=None):
-    """Probleme eines lesbaren Buchs, je ein Satz. Ohne scenes werden Szenen nicht geprueft."""
-    problems = [f"unbekanntes Feld «{k}»" for k in sorted(data.keys() - BOOK_FIELDS)]
+    """Probleme eines lesbaren Buchs. Ohne scenes werden Szenen nicht geprueft.
+
+    Je Problem: cue (Index oder None fuers ganze Buch), field (betroffenes Feld
+    oder None), message (fuer die Anzeige am Feld) und text (ganzer Satz fuers Regal).
+    """
+    problems = []
+
+    def book_problem(msg):
+        problems.append({"cue": None, "field": None, "message": msg, "text": msg})
+
+    for key in sorted(data.keys() - BOOK_FIELDS):
+        book_problem(f"unbekanntes Feld «{key}»")
     if "title" in data and not isinstance(data["title"], str):
-        problems.append("«title» muss Text sein")
-    for i, cue in enumerate(data["cues"], 1):
+        book_problem("«title» muss Text sein")
+    for i, cue in enumerate(data["cues"]):
         label = cue.get("label")
         has_label = isinstance(label, str) and label.strip()
-        where = f"Moment {i} «{label}»" if has_label else f"Moment {i}"
+        where = f"Moment {i + 1} «{label}»" if has_label else f"Moment {i + 1}"
 
-        def add(msg):
-            problems.append(f"{where}: {msg}")
+        def add(msg, field):
+            problems.append({"cue": i, "field": field, "message": msg,
+                             "text": f"{where}: {msg}"})
 
         if not has_label:
-            add("Bezeichnung «label» fehlt")
+            add("Bezeichnung «label» fehlt", "label")
         for key in sorted(cue.keys() - CUE_FIELDS):
-            add(f"unbekanntes Feld «{key}»")
+            add(f"unbekanntes Feld «{key}»", None)
         if "scene" in cue:
-            add_scene_problems(cue["scene"], scenes, add)
+            add_scene_problems(cue["scene"], scenes, lambda msg: add(msg, "scene"))
         if "loop" in cue and cue["loop"] is not None:
-            add_sound_problem(cue["loop"], "loop", add)
+            add_sound_problem(cue["loop"], "loop", lambda msg: add(msg, "loop"))
         if "oneshot" in cue:
-            add_sound_problem(cue["oneshot"], "oneshot", add)
+            add_sound_problem(cue["oneshot"], "oneshot", lambda msg: add(msg, "oneshot"))
         triggers = cue.get("triggers", [])
         if not isinstance(triggers, list) or not all(isinstance(t, str) for t in triggers):
-            add("«triggers» muss eine Liste von Texten sein")
+            add("«triggers» muss eine Liste von Texten sein", "triggers")
     return problems
 
 
@@ -214,20 +282,67 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json(self):
+        """Anfragekoerper als JSON, oder None, wenn er fehlt, zu gross oder kein JSON ist."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 < length <= MAX_BODY:
+                return None
+            return json.loads(self.rfile.read(length))
+        except (ValueError, UnicodeDecodeError):
+            return None
+
+    def _book_path(self):
+        """(Buch-ID, Zusatz) fuer /api/books/<id>[/<zusatz>], sonst (None, None)."""
+        parts = self.path.split("/")
+        if len(parts) not in (4, 5) or parts[:3] != ["", "api", "books"]:
+            return None, None
+        book_id = urllib.parse.unquote(parts[3])
+        if not valid_book_id(book_id):
+            return None, None
+        return book_id, (parts[4] if len(parts) == 5 else None)
+
+    def _scenes(self, refresh):
+        """(Szenenliste oder None, Fehlermeldung oder None) fuer Pruefung und Auswahl."""
+        if self.bridge is None:
+            return None, None
+        try:
+            return self.bridge.scenes(refresh=refresh), None
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            return None, f"Bridge nicht erreichbar: {e}"
+
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self.path = "/static/index.html"
         if self.path == "/api/books":
             return self._books()
-        if self.path.startswith("/api/books/"):
-            book_id = urllib.parse.unquote(self.path.rsplit("/", 1)[-1])
+        if self.path == "/api/scenes":
+            scenes, error = self._scenes(refresh=True)
+            listed = sorted(({"name": s["name"], "room": s["room"]} for s in scenes or []),
+                            key=lambda s: (s["room"].casefold(), s["name"].casefold()))
+            return self._json(200, {"scenes": listed, "lights": self.bridge is not None,
+                                    "error": error})
+        if self.path == "/api/sounds":
+            sounds = sorted((f.name for f in SOUNDS_DIR.iterdir()
+                             if f.is_file() and f.suffix.lower() in SOUND_TYPES),
+                            key=str.casefold)
+            return self._json(200, {"sounds": sounds})
+        if self.path.startswith("/api/"):
+            book_id, extra = self._book_path()
+            if book_id is None or extra not in (None, "edit"):
+                return self._json(404, {"error": "Nicht gefunden"})
             f = BOOKS_DIR / f"{book_id}.json"
-            if not valid_book_id(book_id) or not f.exists():
+            if not f.exists():
                 return self._json(404, {"error": "Buch nicht gefunden"})
-            data, error = read_book(f)
+            raw = f.read_bytes()
+            data, error = parse_book(raw)
             if error:
                 return self._json(400, {"error": f"Buchdatei fehlerhaft: {error}"})
-            return self._json(200, data)
+            if extra is None:
+                return self._json(200, data)
+            scenes, _ = self._scenes(refresh=False)
+            return self._json(200, {"book": data, "version": book_version(raw),
+                                    "problems": book_problems(data, scenes)})
         target = Path(self.translate_path(self.path)).resolve()
         allowed = [(ROOT / d).resolve() for d in ("static", "sounds")]
         if any(target.is_relative_to(d) for d in allowed):
@@ -236,12 +351,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _books(self):
         """Regal: alle Buecher, jeweils mit Problemen gegen Bridge und Sound-Ordner geprueft."""
-        scenes, bridge_error = None, None
-        if self.bridge is not None:
-            try:
-                scenes = self.bridge.scenes(refresh=True)
-            except (urllib.error.URLError, TimeoutError, OSError) as e:
-                bridge_error = f"Bridge nicht erreichbar: {e}"
+        scenes, bridge_error = self._scenes(refresh=True)
         books = []
         for f in sorted(BOOKS_DIR.glob("*.json")):
             data, error = read_book(f)
@@ -252,19 +362,42 @@ class Handler(SimpleHTTPRequestHandler):
             books.append({"id": f.stem,
                           "title": title if isinstance(title, str) and title.strip() else f.stem,
                           "cues": len(data["cues"]),
-                          "problems": book_problems(data, scenes)})
+                          "problems": [p["text"] for p in book_problems(data, scenes)]})
         return self._json(200, {"books": books, "lights": self.bridge is not None,
                                 "bridge_error": bridge_error})
 
+    def do_PUT(self):
+        """Buch speichern: {version, book}. Die Version muss dem Stand auf der Platte entsprechen."""
+        book_id, extra = self._book_path()
+        if book_id is None or extra is not None:
+            return self._json(404, {"error": "Nicht gefunden"})
+        req = self._read_json()
+        if not isinstance(req, dict) or not isinstance(req.get("version"), str):
+            return self._json(400, {"error": "Erwartet: {version, book}"})
+        error = structure_error(req.get("book"))
+        if error:
+            return self._json(400, {"error": error})
+        text = format_book(req["book"])
+        f = BOOKS_DIR / f"{book_id}.json"
+        with BOOK_LOCK:
+            if not f.exists():
+                return self._json(404, {"error": "Die Buchdatei gibt es nicht mehr"})
+            if book_version(f.read_bytes()) != req["version"]:
+                return self._json(409, {"error": "Die Datei wurde ausserhalb geändert"})
+            write_book(f, text)
+        scenes, _ = self._scenes(refresh=False)
+        return self._json(200, {"version": book_version(text.encode()),
+                                "problems": book_problems(req["book"], scenes)})
+
     def do_POST(self):
+        if self.path == "/api/books":
+            return self._create_book()
         if self.path != "/api/scene":
             return self._json(404, {"error": "Nicht gefunden"})
-        length = int(self.headers.get("Content-Length", 0))
-        try:
-            req = json.loads(self.rfile.read(length) or b"{}")
-            name = req["name"]
-        except (json.JSONDecodeError, KeyError):
+        req = self._read_json()
+        if not isinstance(req, dict) or not isinstance(req.get("name"), str):
             return self._json(400, {"error": "Erwartet: {name, room?, dynamic?}"})
+        name = req["name"]
         if self.bridge is None:
             print(f"[Trockenmodus] Szene '{name}' ({req.get('room') or 'ohne Raum'})")
             return self._json(200, {"ok": True, "dry_run": True})
@@ -275,6 +408,18 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(404, {"error": str(e)})
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             return self._json(502, {"error": f"Bridge nicht erreichbar: {e}"})
+
+    def _create_book(self):
+        """Neues Buch mit einem leeren Moment; der Dateiname folgt aus dem Titel."""
+        req = self._read_json()
+        title = req.get("title") if isinstance(req, dict) else None
+        if not isinstance(title, str) or not title.strip():
+            return self._json(400, {"error": "Titel eingeben"})
+        with BOOK_LOCK:
+            book_id = new_book_id(title)
+            write_book(BOOKS_DIR / f"{book_id}.json",
+                       format_book({"title": title.strip(), "cues": [{"label": ""}]}))
+        return self._json(201, {"id": book_id})
 
 
 def pair():

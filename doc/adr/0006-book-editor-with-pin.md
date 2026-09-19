@@ -30,6 +30,12 @@ Scenes are not created or changed in the app; that stays in the Hue app. Sounds 
 
 **Saving.** Every change is saved immediately; there is no draft and no save button. The server writes `books/<id>.json` atomically, keeps fields the editor does not know (such as `triggers`), and refuses to save a book that could not be opened (ADR 0005). Problems that do not prevent opening are allowed, so that a book can be saved while it is being built. The file format stays the same, so files can still be edited by hand and kept in git.
 
+Each save carries the version of the file the editor started from (a hash of its content). If the file has changed since, for example because it was edited by hand on the Mac while the editor was open on the iPad, the server refuses the save instead of overwriting it, and the editor offers to reload.
+
+The server writes books in a fixed layout with one moment per line, so that a change to one moment is a one-line diff and files stay easy to edit by hand.
+
+A new book gets its file name from its title (lower case, umlauts spelled out, a number appended if taken). Renaming the title later does not rename the file. Deleting books and renaming files stays on the Mac.
+
 **PIN.** Editing requires a PIN; reading never does.
 
 - The PIN has six digits and is set on the Mac with `server.py --pin`. Only a PBKDF2 hash is stored, in `config.json`.
@@ -43,6 +49,7 @@ Scenes are not created or changed in the app; that stays in the Hue app. Sounds 
 
 - Preparing a book no longer requires remembering or copying names, and scenes are judged by seeing them. Hand-editing remains possible. This replaces the consequence of ADR 0003 that there is no UI for editing cues.
 - Every change is persistent at once. Mistakes are undone in the editor or, beyond that, with git.
+- The first save from the editor reformats a hand-written book file into the fixed layout. Formatting choices made by hand are not kept.
 - The app is no longer free of authentication (ADR 0002). The PIN keeps out children, guests in the home network and web pages. It does not protect against someone who captures traffic in the home network: the app runs over plain HTTP, so PIN and session cookie travel unencrypted. Real protection would require HTTPS, which ADR 0002 left out.
 - Triggering scenes stays open to every device in the home network, as before; the editor's scene preview uses the same endpoint.
 - The PIN has to be entered again on the iPad after every server restart.

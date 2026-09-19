@@ -23,6 +23,7 @@
     --lamp-dim: #9c7a4c;
     --mist: #7f86a3;
     --warn: #d88c8c;
+    --line: #2c3456;
     --serif: "Literata", Georgia, "Times New Roman", serif;
   }
   * { box-sizing: border-box; }
@@ -36,26 +37,116 @@
   }
   button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
   button:focus-visible { outline: 2px solid var(--lamp-dim); outline-offset: 4px; }
+  button:disabled { color: var(--line); cursor: default; }
+  input:not([type=checkbox]) {
+    font: inherit; color: inherit; background: var(--dusk); border: 0; border-radius: 8px;
+    padding: .55rem .75rem; -webkit-user-select: text; user-select: text;
+  }
+  input::placeholder { color: var(--mist); }
+  input:focus-visible { outline: 2px solid var(--lamp-dim); outline-offset: 2px; }
+  input[type=checkbox] { width: 1.15rem; height: 1.15rem; margin: 0; accent-color: var(--lamp); }
+  .problems {
+    list-style: none; margin: 0; padding: 0; font-size: .9rem; line-height: 1.4; color: var(--warn);
+    -webkit-user-select: text; user-select: text;   /* zum Kopieren beim Korrigieren */
+  }
+  .problems li + li { margin-top: .35rem; }
+  .error { flex-basis: 100%; min-height: 1.3em; margin: 0; font-size: .9rem; color: var(--warn); }
   [hidden] { display: none !important; }
   #next:focus-visible { outline: none; } /* ganze Fläche ist die Taste */
 
   /* Buchauswahl */
   #shelf { max-width: 36rem; margin: 0 auto; padding: 3rem 1.5rem; }
   #shelf h1 { font-weight: 400; font-size: 1.1rem; color: var(--mist); margin: 0 0 1.5rem; }
-  .entry { border-bottom: 1px solid var(--dusk); }
+  .entry { display: flex; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--dusk); }
   .book {
-    display: block; width: 100%; text-align: left; padding: 1.1rem 0;
+    flex: 1; min-width: 0; text-align: left; padding: 1.1rem 0;
     font-size: 1.6rem; line-height: 1.25;
   }
-  .book:disabled { color: var(--mist); cursor: default; }
+  .book:disabled { color: var(--mist); }
   .book small { display: block; font-size: .9rem; color: var(--mist); margin-top: .25rem; }
-  .problems {
-    list-style: none; margin: -.5rem 0 1.1rem; padding: 0;
-    font-size: .9rem; line-height: 1.4; color: var(--warn);
-    -webkit-user-select: text; user-select: text;   /* zum Kopieren beim Korrigieren */
-  }
-  .problems li + li { margin-top: .35rem; }
+  .entry .edit { font-size: .95rem; color: var(--mist); padding: .75rem 0 .75rem 1rem; }
+  .entry .problems { flex-basis: 100%; margin: -.5rem 0 1.1rem; }
+  #addBook { font-size: 1.2rem; color: var(--mist); padding: 1.1rem 0; }
+  #newBookForm { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: 1rem 0 0; }
+  #newTitle { flex: 1; min-width: 12rem; font-size: 1.2rem; }
+  #cancelBook { color: var(--mist); }
   .hint { color: var(--mist); font-size: .95rem; line-height: 1.5; margin-top: 2rem; }
+
+  /* Editor */
+  #editor { max-width: 44rem; margin: 0 auto; padding: 1.5rem 1.25rem 8rem; }
+  #edTop { display: flex; flex-wrap: wrap; align-items: center; gap: 0 1rem; }
+  #edTitle {
+    flex: 1; min-width: 0; font-size: 1.6rem; background: none; border-radius: 0;
+    padding: .4rem 0; border-bottom: 1px solid var(--dusk);
+  }
+  #edStatus { font-size: .85rem; color: var(--mist); text-align: right; }
+  #edStatus.warn { order: 1; flex-basis: 100%; padding-top: .5rem; text-align: left; color: var(--warn); }
+  #edStatus button { color: var(--lamp); padding: .25rem 0 .25rem .5rem; }
+  #edDone { font-size: 1.05rem; padding: .5rem 0 .5rem .5rem; }
+  #bookProblems { margin: .75rem 0 0; }
+  #moments { list-style: none; margin: .5rem 0 0; padding: 0; }
+  .moment { border-bottom: 1px solid var(--dusk); }
+  .moment .head { display: flex; gap: .75rem; width: 100%; text-align: left; padding: .9rem 0; }
+  .num { min-width: 1.5rem; font-size: .9rem; color: var(--mist); }
+  .head .num { padding-top: .2rem; }
+  .head .text { flex: 1; min-width: 0; font-size: 1.15rem; line-height: 1.3; }
+  .head small { display: block; margin-top: .2rem; font-size: .85rem; color: var(--mist); }
+  .head .count, .unnamed { color: var(--warn); }
+  .moment.open { background: var(--dusk); border: 0; border-radius: 10px; padding: .75rem 1rem 1rem; margin: .5rem 0; }
+  .labelRow { display: flex; align-items: center; gap: .75rem; }
+  .open .labelInput { flex: 1; min-width: 0; font-size: 1.2rem; background: var(--night); }
+  .labelInput.empty::placeholder { color: var(--warn); }
+  .field { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; margin: .6rem 0 0 2.25rem; }
+  .field > span { width: 4.5rem; font-size: .85rem; color: var(--mist); }
+  .field .problems { flex-basis: 100%; padding-left: 5.25rem; }
+  .open > .problems { margin: .6rem 0 0 2.25rem; }
+  .chip { min-height: 2.75rem; border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .95rem; text-align: left; }
+  .chip.keep { color: var(--mist); }
+  .actions { display: flex; flex-wrap: wrap; gap: 0 1.25rem; margin: .75rem 0 0 2.25rem; font-size: .95rem; }
+  .actions button { min-height: 2.75rem; color: var(--mist); }
+  .actions .up, .actions .down { min-width: 2.75rem; font-size: 1.15rem; }  /* Touch-Ziel trotz schmalem Zeichen */
+  .actions button:disabled { color: var(--line); }
+  .actions .try { color: var(--lamp); }
+  .actions .del { color: var(--warn); }
+  #addMoment { font-size: 1.05rem; color: var(--mist); padding: 1rem 0; }
+  @media (max-width: 30rem) {         /* iPhone: ohne Einzug, damit die Felder Platz haben */
+    .field, .actions, .open > .problems { margin-left: 0; }
+    .field .problems { padding-left: 0; }
+  }
+  #toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(1.25rem + env(safe-area-inset-bottom)); width: max-content; max-width: calc(100% - 2rem);
+    display: flex; align-items: center; gap: 1rem; padding: .6rem 1rem; font-size: .95rem;
+    background: var(--dusk); border: 1px solid var(--line); border-radius: 10px;
+  }
+  #toast button { color: var(--lamp); }
+
+  /* Auswahl für Licht und Klang */
+  #picker {
+    position: fixed; inset: 0; display: flex; justify-content: center; align-items: flex-start;
+    padding: 4vh 1rem; background: rgba(8, 10, 18, .75);
+  }
+  .sheet {
+    width: 100%; max-width: 34rem; max-height: 92vh; display: flex; flex-direction: column;
+    padding: 1rem 1.25rem; background: var(--night); border: 1px solid var(--line); border-radius: 12px;
+  }
+  .sheetTop { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+  #pickerDone { font-size: 1.05rem; padding: .25rem 0 .25rem .5rem; }
+  #pickerSearch { margin: .75rem 0 .25rem; }
+  #pickerList { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #pickerList h3 {
+    margin: 1rem 0 .25rem; font-weight: 400; font-size: .8rem; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--mist);
+  }
+  #pickerList .hint { margin: 1rem 0; }
+  .option {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; width: 100%;
+    text-align: left; padding: .7rem .6rem; border-bottom: 1px solid var(--dusk);
+  }
+  .option.sel { background: var(--dusk); border-radius: 8px; }
+  .option small { font-size: .85rem; color: var(--mist); white-space: nowrap; }
+  .option.missing, .option.missing small { color: var(--warn); }
+  #pickerDynamic { display: flex; align-items: center; gap: .6rem; padding-top: .75rem; font-size: .95rem; color: var(--mist); }
 
   /* Lesemodus */
   #stage { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
@@ -89,12 +180,43 @@
 <main id="shelf">
   <h1>Welches Buch lesen wir?</h1>
   <div id="books"></div>
+  <button id="addBook">+ Neues Buch</button>
+  <form id="newBookForm" hidden>
+    <input id="newTitle" placeholder="Titel des Buchs" aria-label="Titel des neuen Buchs"
+           autocomplete="off" enterkeyhint="done">
+    <button id="createBook">Anlegen</button>
+    <button id="cancelBook" type="button">Abbrechen</button>
+    <p class="error" id="newBookError" role="status"></p>
+  </form>
   <p class="hint" id="shelfHint"></p>
 </main>
+
+<main id="editor" hidden>
+  <div id="edTop">
+    <input id="edTitle" placeholder="Titel" aria-label="Titel des Buchs" autocomplete="off">
+    <span id="edStatus" role="status"></span>
+    <button id="edDone">Fertig</button>
+  </div>
+  <ul class="problems" id="bookProblems" data-cue="book" data-field="other"></ul>
+  <ol id="moments"></ol>
+  <button id="addMoment">+ Moment hinzufügen</button>
+  <div id="toast" role="status" hidden><span id="toastText"></span><button id="undo">Rückgängig</button></div>
+</main>
+
+<div id="picker" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+    <div class="sheetTop"><span id="pickerTitle"></span><button id="pickerDone">Fertig</button></div>
+    <input id="pickerSearch" type="search" autocomplete="off" aria-label="Suchen">
+    <p class="error" id="pickerStatus" role="status"></p>
+    <div id="pickerList"></div>
+    <label id="pickerDynamic"><input type="checkbox" id="dynamic"> Dynamisch abspielen</label>
+  </div>
+</div>
 
 <main id="stage" hidden>
   <div id="top">
     <span class="title" id="bookTitle"></span>
+    <button id="editBook">Bearbeiten</button>
     <button id="close">Andere Bücher</button>
   </div>
   <button id="next" aria-live="polite">
@@ -160,30 +282,31 @@ const audio = {
     this.loop = { name, src, gain };
   },
   playOnce(name) {
-    if (!this.buffers[name]) return;
+    if (!this.buffers[name]) return null;
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffers[name];
     src.connect(this.ctx.destination);
     src.start();
+    return src;                         // zum Stoppen der Hörprobe im Editor
   },
 };
 
 // ---------- Zustand ----------
-let book = null, idx = -1;
+let book = null, bookId = null, idx = -1;
 
 // Effektiver Zustand bis Cue i: letzte Szene, aktueller Loop.
 // loop: Dateiname = wechseln, null = ausblenden, fehlt = beibehalten.
-function effective(i) {
+function effective(cues, i) {
   let scene = null, loop = null;
   for (let k = 0; k <= i; k++) {
-    const c = book.cues[k];
+    const c = cues[k];
     if (c.scene) scene = c.scene;
     if ("loop" in c) loop = c.loop;
   }
   return { scene, loop };
 }
 
-async function setScene(scene) {
+async function setScene(scene, report = status) {
   if (!scene) return;
   try {
     const r = await fetch("/api/scene", {
@@ -191,8 +314,8 @@ async function setScene(scene) {
       body: JSON.stringify(scene),
     });
     const j = await r.json();
-    if (!r.ok) status(j.error || "Szene nicht gesetzt");
-  } catch { status("Server nicht erreichbar"); }
+    if (!r.ok) report(j.error || "Szene nicht gesetzt");
+  } catch { report("Server nicht erreichbar"); }
 }
 
 function status(msg) { $("status").textContent = msg || ""; }
@@ -228,7 +351,7 @@ async function go(to, forward) {
     if ("loop" in cue) audio.setLoop(cue.loop);
   } else {
     // Rückwärts: Zustand von Cue idx wiederherstellen, ohne Einzeleffekte.
-    const e = effective(idx);
+    const e = effective(book.cues, idx);
     setScene(e.scene);
     audio.setLoop(e.loop);
   }
@@ -240,15 +363,22 @@ async function openBook(id) {
   const r = await fetch("/api/books/" + encodeURIComponent(id));
   const j = await r.json();
   if (!r.ok) { $("shelfHint").textContent = j.error; return; }
-  book = j; idx = -1;
+  startReading(id, j, -1);
+}
+
+// Lesemodus starten. start >= 0 stellt Licht und Teppich so ein, wie sie nach
+// diesem Moment wären (Probelesen aus dem Editor).
+async function startReading(id, data, start) {
+  book = data; bookId = id; idx = -1;
   const sounds = [...new Set(book.cues.flatMap(c => [c.loop, c.oneshot]).filter(Boolean))];
   $("bookTitle").textContent = book.title;
-  $("shelf").hidden = true; $("stage").hidden = false;
+  $("shelf").hidden = true; $("editor").hidden = true; $("stage").hidden = false;
   render();
+  if (start >= 0) go(start, false);
   const missing = await audio.load(sounds);
-  if (book !== j) return;             // inzwischen geschlossen oder anderes Buch
+  if (book !== data) return;          // inzwischen geschlossen oder anderes Buch
   // Wurde vor Ende des Ladens weitergetippt, fehlt der Klangteppich noch.
-  if (idx >= 0) audio.setLoop(effective(idx).loop);
+  if (idx >= 0) audio.setLoop(effective(book.cues, idx).loop);
   if (missing.length) status("Fehlende Sounds: " + missing.join(", "));
   try { await navigator.wakeLock?.request("screen"); } catch {}
   $("next").focus();
@@ -256,7 +386,7 @@ async function openBook(id) {
 
 function closeBook() {
   audio.fadeOutLoop();
-  book = null;
+  book = null; bookId = null;
   $("stage").hidden = true; $("shelf").hidden = false;
   loadShelf();                        // Buchdateien können sich inzwischen geändert haben
 }
@@ -276,6 +406,11 @@ function shelfEntry(b) {
       + (problems.length ? " · " + plural(problems.length, "Problem", "Probleme") : "");
   btn.append(b.title, small);
   entry.append(btn);
+  if (!b.error) {
+    const editBtn = h("button", { className: "edit", textContent: "Bearbeiten" });
+    editBtn.dataset.id = b.id;
+    entry.append(editBtn);
+  }
   if (problems.length) {
     const list = document.createElement("ul");
     list.className = "problems";
@@ -293,7 +428,7 @@ async function loadShelf() {
     if (request !== shelfRequest) return;   // eine neuere Anfrage läuft schon
     $("books").replaceChildren(...j.books.map(shelfEntry));
     $("shelfHint").textContent =
-      !j.books.length ? "Noch keine Bücher. Lege eine JSON-Datei im Ordner books an."
+      !j.books.length ? "Noch keine Bücher. Leg mit «Neues Buch» das erste an."
       : !j.lights ? "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt und nicht geprüft."
       : j.bridge_error ? "Szenen nicht geprüft. " + j.bridge_error
       : "";
@@ -302,22 +437,499 @@ async function loadShelf() {
   }
 }
 
-$("books").addEventListener("click", e => {
-  const b = e.target.closest(".book");
-  if (b) openBook(b.dataset.id);
+// ---------- Editor ----------
+// Jede Änderung wird sofort gespeichert (ADR 0006). version ist der Dateistand,
+// den der Editor kennt; wurde die Datei inzwischen anders geändert, lehnt der Server ab.
+let edit = null;     // {id, book, version, problems, open, dirty, saving, timer, conflict, deleted}
+let picker = null;   // {i, field, items, error, playing, preview}
+let toastTimer = null;
+
+function h(tag, props = {}, ...children) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...children);
+  return e;
+}
+
+async function openEditor(id, open = -1, focus = null) {
+  let r, j;
+  try {
+    r = await fetch(`/api/books/${encodeURIComponent(id)}/edit`);
+    j = await r.json();
+  } catch { return "Server nicht erreichbar"; }
+  if (!r.ok) return j.error;
+  if (book) { audio.fadeOutLoop(); book = null; bookId = null; }
+  closePicker(false);
+  hideToast();
+  edit = { id, book: j.book, version: j.version, problems: j.problems, open,
+           dirty: false, saving: null, timer: null, conflict: false, deleted: null };
+  $("edTitle").value = edit.book.title ?? "";
+  edStatus("");
+  $("shelf").hidden = true; $("stage").hidden = true; $("editor").hidden = false;
+  renderEditor(focus);
+  return null;
+}
+
+async function leaveEditor() {
+  // Nach einem Konflikt gilt der Stand der Datei; sonst erst gehen, wenn alles gespeichert ist.
+  if (!(await save()) && !edit.conflict) return;
+  closePicker(false);
+  hideToast();
+  edit = null;
+  $("editor").hidden = true; $("shelf").hidden = false;
+  loadShelf();
+}
+
+async function rehearse(i) {
+  audio.init();                       // noch in der Tipp-Geste, für iOS
+  if (!(await save())) return;
+  const e = edit;
+  closePicker(false);
+  hideToast();
+  edit = null;
+  startReading(e.id, e.book, i - 1);
+}
+
+function edStatus(text, warn = false, action = null) {
+  const s = $("edStatus");
+  s.textContent = text;
+  s.classList.toggle("warn", warn);
+  if (action) s.append(h("button", { textContent: action.label, onclick: action.run }));
+}
+
+function changed(delay = 0) {
+  edit.dirty = true;
+  if (!edit.conflict) edStatus("Speichert …");
+  clearTimeout(edit.timer);
+  edit.timer = setTimeout(save, delay);
+}
+
+// Liefert true, sobald alles gespeichert ist. Läuft schon ein Speichern, wird
+// dessen Schleife genutzt: Sie sendet so lange, bis nichts mehr offen ist.
+function save() {
+  const e = edit;
+  clearTimeout(e.timer);
+  if (!e.saving) e.saving = saveLoop(e).finally(() => { e.saving = null; });
+  return e.saving;
+}
+
+async function saveLoop(e) {
+  const retry = { label: "Erneut versuchen", run: save };
+  const report = (...args) => { if (e === edit) edStatus(...args); };
+  while (e.dirty && !e.conflict) {
+    e.dirty = false;
+    let r, j;
+    try {
+      r = await fetch(`/api/books/${encodeURIComponent(e.id)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: e.version, book: e.book }),
+      });
+      j = await r.json();
+    } catch {
+      e.dirty = true;
+      report("Nicht gespeichert: Server nicht erreichbar.", true, retry);
+      return false;
+    }
+    if (r.status === 409) {
+      e.conflict = true;
+      report(j.error + ". Deine letzten Änderungen sind nicht gespeichert.", true, {
+        label: "Neu laden",
+        run: async () => { const error = await openEditor(e.id, e.open); if (error) edStatus(error, true); },
+      });
+      return false;
+    }
+    if (!r.ok) {
+      e.dirty = true;
+      report("Nicht gespeichert: " + j.error, true, retry);
+      return false;
+    }
+    e.version = j.version;
+    e.problems = j.problems;
+    if (e === edit && !e.dirty) renderProblems();   // sonst passt die Nummerierung erst nach dem nächsten Speichern
+  }
+  if (e.conflict) return false;
+  report("Gespeichert");
+  return true;
+}
+
+const FIELDS = [["scene", "Licht"], ["loop", "Teppich"], ["oneshot", "Effekt"]];
+
+function sceneText(s) {
+  return [s.name, s.room, s.dynamic && "dynamisch"].filter(Boolean).join(" · ") || "ungültige Szene";
+}
+
+// Text im Feld; «unverändert» und «läuft weiter» nennen, was vom Moment davor weiterwirkt.
+function fieldText(i, field) {
+  const cues = edit.book.cues, cue = cues[i], before = effective(cues, i - 1);
+  if (field === "scene") {
+    if (cue.scene) return { text: sceneText(cue.scene) };
+    return { text: before.scene ? `unverändert (${before.scene.name})` : "unverändert", keep: true };
+  }
+  if (field === "loop") {
+    if (!("loop" in cue)) return { text: before.loop ? `läuft weiter (${before.loop})` : "keiner", keep: true };
+    return { text: cue.loop === null ? "ausblenden" : `wechselt zu ${cue.loop}` };
+  }
+  return cue.oneshot ? { text: cue.oneshot } : { text: "keiner", keep: true };
+}
+
+function summary(cue) {
+  const parts = [];
+  if (cue.scene) parts.push(sceneText(cue.scene));
+  if ("loop" in cue) parts.push(cue.loop === null ? "Teppich aus" : "Teppich " + cue.loop);
+  if (cue.oneshot) parts.push("Effekt " + cue.oneshot);
+  return parts.join(" — ") || "Kein Licht- oder Klangwechsel";
+}
+
+const hasLabel = cue => typeof cue.label === "string" && cue.label.trim() !== "";
+const momentName = (cue, i) => hasLabel(cue) ? `«${cue.label}»` : `Moment ${i + 1}`;
+
+// Platzhalter, den renderProblems() mit den Problemen zu Moment i und Feld füllt.
+function problemSlot(i, field, tag = "ul") {
+  const slot = h(tag, { className: tag === "ul" ? "problems" : "count" });
+  slot.dataset.cue = i;
+  slot.dataset.field = field;
+  return slot;
+}
+
+function renderEditor(focus = null) {
+  const cues = edit.book.cues;
+  $("moments").replaceChildren(...cues.map((cue, i) =>
+    i === edit.open ? openMoment(cue, i) : closedMoment(cue, i)));
+  renderProblems();
+  const open = $("moments").children[edit.open];
+  if (open) {
+    open.scrollIntoView({ block: "nearest" });
+    if (focus) open.querySelector(focus)?.focus();
+  }
+}
+
+function closedMoment(cue, i) {
+  const head = h("button", { className: "head", onclick: () => { edit.open = i; renderEditor(); } },
+    h("span", { className: "num", textContent: i + 1 }),
+    h("span", { className: "text" },
+      hasLabel(cue) ? cue.label : h("span", { className: "unnamed", textContent: "Ohne Bezeichnung" }),
+      h("small", {}, summary(cue), problemSlot(i, "count", "span"))));
+  return h("li", { className: "moment" }, head);
+}
+
+function openMoment(cue, i) {
+  const last = edit.book.cues.length - 1;
+  const input = h("input", { className: "labelInput", value: cue.label ?? "",
+    placeholder: "Bezeichnung des Moments", autocomplete: "off", enterKeyHint: "next" });
+  input.setAttribute("aria-label", `Bezeichnung von Moment ${i + 1}`);
+  const markEmpty = () => input.classList.toggle("empty", !input.value.trim());
+  markEmpty();
+  input.addEventListener("input", () => { cue.label = input.value; markEmpty(); changed(600); });
+  // Enter legt den nächsten Moment an: So lässt sich erst das Gerüst des Buchs tippen.
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); insertMoment(i + 1); }
+  });
+  const fields = FIELDS.map(([field, name]) => {
+    const t = fieldText(i, field);
+    const chip = h("button", { className: "chip" + (t.keep ? " keep" : ""), textContent: t.text,
+                               onclick: () => openPicker(i, field) });
+    chip.dataset.field = field;
+    return h("div", { className: "field" }, h("span", { textContent: name }), chip, problemSlot(i, field));
+  });
+  const action = (text, className, onclick, disabled = false, label = null) => {
+    const b = h("button", { textContent: text, className, onclick, disabled });
+    if (label) b.setAttribute("aria-label", label);
+    return b;
+  };
+  return h("li", { className: "moment open" },
+    h("div", { className: "labelRow" }, h("span", { className: "num", textContent: i + 1 }), input),
+    ...fields,
+    problemSlot(i, "other"),
+    h("div", { className: "actions" },
+      action("Ab hier probelesen", "try", () => rehearse(i)),
+      action("↑", "up", () => moveMoment(i, -1), i === 0, "Nach oben"),
+      action("↓", "down", () => moveMoment(i, 1), i === last, "Nach unten"),
+      action("+ Moment danach", "", () => insertMoment(i + 1)),
+      action("Löschen", "del", () => deleteMoment(i))));
+}
+
+// Probleme an die Stelle, an der man sie beheben kann. Eine fehlende Bezeichnung
+// zeigt das leere Feld selbst.
+function renderProblems() {
+  const own = ["label", "scene", "loop", "oneshot"];
+  document.querySelectorAll("#editor [data-field]:not(.chip)").forEach(slot => {
+    const cue = slot.dataset.cue === "book" ? null : Number(slot.dataset.cue), f = slot.dataset.field;
+    const found = edit.problems.filter(p => p.cue === cue && (
+      f === "count" ? p.field !== "label" : f === "other" ? !own.includes(p.field) : p.field === f));
+    if (f === "count") slot.textContent = found.length ? " · " + plural(found.length, "Problem", "Probleme") : "";
+    else slot.replaceChildren(...found.map(p => h("li", { textContent: p.message })));
+  });
+}
+
+// Bis die Antwort aufs nächste Speichern da ist, wandern die Probleme mit ihren Momenten.
+function remapProblems(to) {
+  edit.problems = edit.problems.flatMap(p => {
+    if (p.cue === null) return [p];
+    const k = to(p.cue);
+    return k === null ? [] : [{ ...p, cue: k }];
+  });
+}
+
+function insertMoment(at) {
+  edit.book.cues.splice(at, 0, { label: "" });
+  remapProblems(k => k >= at ? k + 1 : k);
+  edit.open = at;
+  changed();
+  renderEditor(".labelInput");
+}
+
+function moveMoment(i, d) {
+  const cues = edit.book.cues, j = i + d;
+  [cues[i], cues[j]] = [cues[j], cues[i]];
+  remapProblems(k => k === i ? j : k === j ? i : k);
+  edit.open = j;
+  changed();
+  renderEditor(j === 0 ? ".down" : j === cues.length - 1 ? ".up" : d < 0 ? ".up" : ".down");
+}
+
+function deleteMoment(i) {
+  const [cue] = edit.book.cues.splice(i, 1);
+  const problems = edit.problems.filter(p => p.cue === i);
+  remapProblems(k => k === i ? null : k > i ? k - 1 : k);
+  edit.open = -1;
+  changed();
+  renderEditor();
+  showToast(`${hasLabel(cue) ? `Moment «${cue.label}»` : `Moment ${i + 1}`} gelöscht`);
+  edit.deleted = { cue, at: i, problems };
+}
+
+function undoDelete() {
+  const d = edit.deleted;
+  if (!d) return;
+  hideToast();
+  edit.book.cues.splice(d.at, 0, d.cue);
+  remapProblems(k => k >= d.at ? k + 1 : k);
+  edit.problems.push(...d.problems);
+  edit.open = d.at;
+  changed();
+  renderEditor();
+}
+
+function showToast(text) {
+  $("toastText").textContent = text;
+  $("toast").hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 8000);
+}
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  $("toast").hidden = true;
+  if (edit) edit.deleted = null;
+}
+
+// ---------- Auswahl: Tippen wählt aus und probiert aus ----------
+async function openPicker(i, field) {
+  const cue = edit.book.cues[i];
+  const p = picker = { i, field, items: null, error: null, playing: null, preview: null };
+  $("pickerTitle").textContent = `${{ scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(cue, i)}`;
+  $("pickerSearch").value = "";
+  $("pickerSearch").placeholder = field === "scene" ? "Szene oder Raum suchen" : "Sound suchen";
+  $("pickerDynamic").hidden = field !== "scene";
+  $("pickerStatus").textContent = "";
+  $("picker").hidden = false;
+  renderPicker();
+  try {
+    const j = await (await fetch(field === "scene" ? "/api/scenes" : "/api/sounds")).json();
+    if (picker !== p) return;
+    p.items = field === "scene" ? j.scenes : j.sounds;
+    if (field === "scene" && !j.lights) p.error = "Trockenmodus: Ohne Bridge lassen sich keine Szenen auswählen.";
+    else if (field === "scene") p.error = j.error;
+  } catch {
+    if (picker !== p) return;
+    p.items = [];
+    p.error = "Server nicht erreichbar";
+  }
+  $("pickerStatus").textContent = p.error || "";
+  renderPicker();
+}
+
+function closePicker(rerender = true) {
+  if (!picker) return;
+  const field = picker.field;
+  stopPreview();
+  picker = null;
+  $("picker").hidden = true;
+  if (rerender && edit) renderEditor(`.chip[data-field=${field}]`);
+}
+
+function renderPicker() {
+  const { i, field, items } = picker, cue = edit.book.cues[i];
+  const q = $("pickerSearch").value.trim().toLowerCase();
+  const rows = [];
+  const option = (text, note, selected, onclick, missing = false) => {
+    const b = h("button", { className: "option" + (selected ? " sel" : "") + (missing ? " missing" : ""), onclick },
+      h("span", { textContent: text }), h("small", { textContent: note }));
+    b.setAttribute("aria-pressed", selected);
+    rows.push(b);
+  };
+  const heading = text => rows.push(h("h3", { textContent: text }));
+  const hint = text => rows.push(h("p", { className: "hint", textContent: text }));
+
+  if (field === "scene") {
+    const cur = cue.scene, before = effective(edit.book.cues, i - 1).scene;
+    const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+    const isCur = s => !!cur && same(s.name, cur.name) && (cur.room == null || same(s.room, cur.room));
+    option("Kein Lichtwechsel", before ? `bleibt ${before.name}` : "", !cur, () => pickScene(null));
+    if (cur && items && !items.some(isCur)) option(sceneText(cur), "nicht auf der Bridge", true, () => {}, true);
+    if (!items) hint("Lade Szenen …");
+    let room = null;
+    for (const s of (items || []).filter(s => !q || `${s.name} ${s.room}`.toLowerCase().includes(q))) {
+      if (s.room !== room) heading(room = s.room);
+      option(s.name, isCur(s) ? "✓ gewählt" : "", isCur(s), () => pickScene(s));
+    }
+    $("dynamic").checked = !!cur?.dynamic;
+    $("dynamic").disabled = !cur;
+  } else {
+    const cur = cue[field];
+    if (field === "loop") {
+      const before = effective(edit.book.cues, i - 1).loop;
+      option("Weiterlaufen lassen", before ? `(${before})` : "(es läuft keiner)", !("loop" in cue), () => pickSound(undefined));
+      option("Ausblenden", "", cue.loop === null, () => pickSound(null));
+      heading("Wechseln zu");
+    } else {
+      option("Kein Effekt", "", !cur, () => pickSound(undefined));
+      heading("Abspielen");
+    }
+    if (typeof cur === "string" && items && !items.includes(cur)) option(cur, "fehlt im Ordner sounds", true, () => {}, true);
+    if (!items) hint("Lade Sounds …");
+    else if (!items.length) hint("Noch keine Sounds. Lege mp3-, m4a- oder wav-Dateien in den Ordner sounds.");
+    for (const n of (items || []).filter(n => !q || n.toLowerCase().includes(q)))
+      option(n, picker.playing === n ? "▶ spielt" : cur === n ? "✓ gewählt" : "", cur === n, () => pickSound(n));
+  }
+  $("pickerList").replaceChildren(...rows);
+}
+
+function pickScene(s) {
+  const cue = edit.book.cues[picker.i];
+  if (s) {
+    cue.scene = { name: s.name, room: s.room };
+    if ($("dynamic").checked) cue.scene.dynamic = true;
+    previewScene(cue.scene);
+  } else delete cue.scene;
+  changed();
+  renderPicker();
+}
+
+function previewScene(scene) {
+  $("pickerStatus").textContent = "";
+  setScene(scene, msg => { if (picker) $("pickerStatus").textContent = msg; });
+}
+
+// name: Dateiname, null = ausblenden (nur Teppich), undefined = Feld entfernen.
+function pickSound(name) {
+  audio.init();                       // noch in der Tipp-Geste, für iOS
+  const cue = edit.book.cues[picker.i];
+  if (name === undefined) delete cue[picker.field];
+  else cue[picker.field] = name;
+  changed();
+  if (typeof name === "string") togglePreview(name);
+  else stopPreview();
+  renderPicker();
+}
+
+// Hörprobe: einmal ganz abspielen, zweites Tippen stoppt.
+async function togglePreview(name) {
+  const p = picker;
+  if (p.playing === name) return stopPreview();
+  stopPreview();
+  p.playing = name;
+  const missing = await audio.load([name]);
+  if (picker !== p || p.playing !== name) return;
+  if (missing.length) {
+    p.playing = null;
+    $("pickerStatus").textContent = `«${name}» lässt sich nicht abspielen`;
+  } else {
+    const src = p.preview = audio.playOnce(name);
+    src.onended = () => { if (p.preview === src) { p.playing = null; p.preview = null; if (picker === p) renderPicker(); } };
+  }
+  renderPicker();
+}
+
+function stopPreview() {
+  if (!picker) return;
+  const src = picker.preview;
+  picker.playing = null;
+  picker.preview = null;
+  if (src) { src.onended = null; src.stop(); }
+}
+
+$("dynamic").addEventListener("change", () => {
+  const cue = edit.book.cues[picker.i];
+  if (!cue.scene) return;
+  if ($("dynamic").checked) cue.scene.dynamic = true;
+  else delete cue.scene.dynamic;
+  changed();
+  previewScene(cue.scene);
+  renderPicker();
+});
+$("pickerSearch").addEventListener("input", renderPicker);
+$("pickerDone").addEventListener("click", () => closePicker());
+$("picker").addEventListener("click", e => { if (e.target === $("picker")) closePicker(); });
+$("edTitle").addEventListener("input", () => { edit.book.title = $("edTitle").value; changed(600); });
+$("edDone").addEventListener("click", leaveEditor);
+$("addMoment").addEventListener("click", () => insertMoment(edit.book.cues.length));
+$("undo").addEventListener("click", undoDelete);
+
+// ---------- Neues Buch ----------
+function closeNewBook() { $("newBookForm").hidden = true; $("addBook").hidden = false; }
+$("addBook").addEventListener("click", () => {
+  $("addBook").hidden = true; $("newBookForm").hidden = false;
+  $("newTitle").value = ""; $("newBookError").textContent = "";
+  $("newTitle").focus();
+});
+$("cancelBook").addEventListener("click", closeNewBook);
+$("newTitle").addEventListener("input", () => { $("newBookError").textContent = ""; });
+$("newBookForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const title = $("newTitle").value.trim();
+  if (!title) { $("newBookError").textContent = "Titel eingeben"; return; }
+  $("createBook").disabled = true;
+  try {
+    const r = await fetch("/api/books", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
+    });
+    const j = await r.json();
+    if (!r.ok) { $("newBookError").textContent = j.error; return; }
+    closeNewBook();
+    const error = await openEditor(j.id, 0, ".labelInput");
+    if (error) $("shelfHint").textContent = error;
+  } catch {
+    $("newBookError").textContent = "Server nicht erreichbar";
+  } finally {
+    $("createBook").disabled = false;
+  }
+});
+
+$("books").addEventListener("click", async e => {
+  const editBtn = e.target.closest(".edit"), b = e.target.closest(".book");
+  if (editBtn) {
+    const error = await openEditor(editBtn.dataset.id);
+    if (error) $("shelfHint").textContent = error;
+  } else if (b) openBook(b.dataset.id);
 });
 $("next").addEventListener("click", () => go(idx + 1, true));
 $("back").addEventListener("click", () => go(idx - 1, false));
 $("close").addEventListener("click", closeBook);
+// Bearbeiten beim Moment, bei dem man gerade ist
+$("editBook").addEventListener("click", async () => {
+  const error = await openEditor(bookId, Math.min(Math.max(idx, 0), book.cues.length - 1));
+  if (error) status(error);
+});
 // Pfeiltasten: Bluetooth-Seitenwender und Tastaturen senden diese
 document.addEventListener("keydown", e => {
+  if (picker && e.key === "Escape") { closePicker(); return; }
   if (!book) return;
   if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(idx + 1, true); }
   if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); go(idx - 1, false); }
 });
 // Zurück im Regal, etwa nach dem Bearbeiten einer Buchdatei am Mac: neu prüfen
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !book) loadShelf();
+  if (document.visibilityState === "visible" && !$("shelf").hidden) loadShelf();
 });
 loadShelf();
 </script>
