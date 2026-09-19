@@ -51,6 +51,9 @@ SESSION_COOKIE = "vorlese_session"
 EDIT_HEADER = "X-Vorlese-Board"  # fremde Webseiten koennen ihn nicht ohne CORS-Freigabe senden
 NO_PIN = ("Bearbeiten geht auf diesem Gerät erst, wenn am Mac eine PIN gesetzt ist: "
           "python3 server.py --pin")
+WRONG_HOST = ("Bearbeiten geht nur über den .local-Namen des Macs oder seine IP-Adresse, "
+              "nicht über «{host}». Den .local-Namen zeigt der Mac unter "
+              "Systemeinstellungen > Allgemein > Freigaben.")
 
 
 def load_config():
@@ -336,10 +339,13 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _edit_access(self):
-        """ok: darf bearbeiten; pin: PIN noetig; no_pin: noch keine PIN gesetzt.
+        """ok: darf bearbeiten; pin: PIN noetig; no_pin: noch keine PIN gesetzt;
+        wrong_host: ueber diesen Namen aufgerufen, geht Bearbeiten nie (siehe trusted_host).
 
         Am Mac selbst (localhost) braucht es keine PIN; dort liegen die Dateien ohnehin offen.
         """
+        if not trusted_host(self.headers.get("Host")):
+            return "wrong_host"
         if self.client_address[0] in ("127.0.0.1", "::1"):
             return "ok"
         try:
@@ -352,17 +358,20 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _guard(self, need_session=True):
         """Fehlerantwort senden und True liefern, wenn die Anfrage nicht bearbeiten darf."""
-        if not trusted_host(self.headers.get("Host")) or self.headers.get(EDIT_HEADER) != "1":
+        if self.headers.get(EDIT_HEADER) != "1":
             self._json(403, {"error": "Anfrage abgelehnt"})
             return True
-        if not need_session:
-            return False
         access = self._edit_access()
-        if access == "pin":
+        if access == "wrong_host":
+            host = urllib.parse.urlsplit("//" + (self.headers.get("Host") or "")).hostname or ""
+            self._json(403, {"error": WRONG_HOST.format(host=host)})
+        elif need_session and access == "pin":
             self._json(401, {"error": "PIN nötig", "pin": True})
-        elif access == "no_pin":
+        elif need_session and access == "no_pin":
             self._json(403, {"error": NO_PIN})
-        return access != "ok"
+        else:
+            return False
+        return True
 
     def _check_pin(self):
         """PIN pruefen; nach zu vielen Fehlversuchen kurz sperren. Erfolg setzt das Sitzungs-Cookie."""

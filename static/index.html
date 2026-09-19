@@ -309,8 +309,10 @@ const audio = {
 
 // ---------- Zustand ----------
 let book = null, bookId = null, idx = -1;
-// Bearbeiten auf diesem Gerät: ok, pin (PIN nötig) oder no_pin (nur am Mac), laut Server
+// Bearbeiten auf diesem Gerät laut Server: ok, pin (PIN nötig), no_pin (nur am Mac)
+// oder wrong_host (über diese Adresse nie)
 let editAccess = "ok";
+const canEdit = () => editAccess === "ok" || editAccess === "pin";
 // Der eigene Header weist Anfragen fremder Webseiten ab (ADR 0006).
 const EDIT_HEADERS = { "Content-Type": "application/json", "X-Vorlese-Board": "1" };
 
@@ -426,7 +428,7 @@ function shelfEntry(b) {
       + (problems.length ? " · " + plural(problems.length, "Problem", "Probleme") : "");
   btn.append(b.title, small);
   entry.append(btn);
-  if (!b.error && editAccess !== "no_pin") {
+  if (!b.error && canEdit()) {
     const editBtn = h("button", { className: "edit", textContent: "Bearbeiten" });
     editBtn.dataset.id = b.id;
     entry.append(editBtn);
@@ -448,12 +450,12 @@ async function loadShelf() {
     if (request !== shelfRequest) return;   // eine neuere Anfrage läuft schon
     setEditAccess(j.edit);
     $("books").replaceChildren(...j.books.map(shelfEntry));
-    const canEdit = editAccess !== "no_pin";
     $("shelfHint").textContent = [
-      !j.books.length && (canEdit ? "Noch keine Bücher. Leg mit «Neues Buch» das erste an." : "Noch keine Bücher."),
+      !j.books.length && (canEdit() ? "Noch keine Bücher. Leg mit «Neues Buch» das erste an." : "Noch keine Bücher."),
       !j.lights ? "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt und nicht geprüft."
         : j.bridge_error && "Szenen nicht geprüft. " + j.bridge_error,
-      !canEdit && "Bearbeiten geht auf diesem Gerät erst, wenn am Mac eine PIN gesetzt ist: python3 server.py --pin",
+      editAccess === "no_pin" && "Bearbeiten geht auf diesem Gerät erst, wenn am Mac eine PIN gesetzt ist: python3 server.py --pin",
+      editAccess === "wrong_host" && `Bearbeiten geht nur über den .local-Namen des Macs oder seine IP-Adresse, nicht über «${location.hostname}». Den .local-Namen zeigt der Mac unter Systemeinstellungen > Allgemein > Freigaben.`,
     ].filter(Boolean).join(" ");
   } catch {
     if (request === shelfRequest) $("shelfHint").textContent = "Server nicht erreichbar.";
@@ -911,10 +913,9 @@ $("undo").addEventListener("click", undoDelete);
 // ---------- PIN ----------
 function setEditAccess(access) {
   editAccess = access;
-  const canEdit = access !== "no_pin";
-  $("addBook").hidden = !canEdit || !$("newBookForm").hidden;
-  if (!canEdit) $("newBookForm").hidden = true;
-  $("editBook").hidden = !canEdit;
+  $("addBook").hidden = !canEdit() || !$("newBookForm").hidden;
+  if (!canEdit()) $("newBookForm").hidden = true;
+  $("editBook").hidden = !canEdit();
 }
 
 // Vor dem Bearbeiten: Braucht es eine PIN, öffnet der Dialog noch in der Tipp-Geste,

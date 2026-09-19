@@ -44,7 +44,8 @@ A new book gets its file name from its title (lower case, umlauts spelled out, a
 - Every write request, and loading a book for editing, must carry the session cookie and a custom request header, and its `Host` header must be `localhost`, a `.local` name or an IP address. A web page on the internet can produce neither: the header would need a CORS permission the server never grants, and a DNS rebinding attack arrives with the attacker's own domain as host. This blocks cross-site requests and DNS rebinding from web pages opened on any device in the home network.
 - Requests from the Mac itself (`localhost`) need no PIN, since whoever sits at the Mac can edit the files directly anyway. The header and host checks still apply.
 - As long as no PIN is set, editing works only on the Mac. Other devices do not show "Bearbeiten" or "Neues Buch"; the shelf says how to set a PIN.
-- Write requests can only create, change or delete files named `books/<valid id>.json`.
+- Likewise, when the app is opened under any other host name, for example a name handed out by the router's DNS, editing is hidden and the shelf names the `.local` name or the IP address as the way to edit. Reading works under any name.
+- Write requests can only create or change files named `books/<valid id>.json`; there is no way to delete a book in the app.
 
 ## Consequences
 

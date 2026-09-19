@@ -15,7 +15,9 @@ Ohne `--pair` läuft alles im Trockenmodus: Sounds spielen, Szenen erscheinen nu
 
     python3 server.py
 
-Auf iPad/iPhone im selben WLAN: `http://<Name-des-Macs>.local:8765`
+Auf iPad/iPhone im selben WLAN: `http://<Name-des-Macs>.local:8765`. Den Namen zeigt
+Systemeinstellungen > Allgemein > Freigaben > Lokaler Hostname. Über andere Namen, etwa
+vom Router vergebene, lässt sich vorlesen, aber nicht bearbeiten; die IP-Adresse geht auch.
 (Safari > Teilen > Zum Home-Bildschirm). Automatische Sperre des Geräts beim Lesen
 ausschalten: Die Bildschirmsperre-Unterdrückung des Browsers funktioniert nur über HTTPS.
 
