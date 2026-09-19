@@ -1,0 +1,43 @@
+# Vorlese-Board (Stufe 1)
+
+Licht- und Klang-Cues zum Vorlesen. Pro Buch eine Abfolge von Momenten;
+beim Lesen tippt man nur «weiter».
+
+## Einrichten (einmalig, auf dem Mac)
+
+    python3 server.py --pair     # Bridge-IP eingeben, Knopf auf der Bridge drücken
+    python3 server.py --scenes   # zeigt alle Hue-Szenen mit Raum
+
+Ohne `--pair` läuft alles im Trockenmodus: Sounds spielen, Szenen erscheinen nur im Terminal.
+
+## Starten
+
+    python3 server.py
+
+Auf iPad/iPhone im selben WLAN: `http://<Name-des-Macs>.local:8765`
+(Safari > Teilen > Zum Home-Bildschirm). Automatische Sperre des Geräts beim Lesen
+ausschalten: Die Bildschirmsperre-Unterdrückung des Browsers funktioniert nur über HTTPS.
+
+Bluetooth-Seitenwender (Pedal, Fernbedienung) funktionieren, sofern sie Pfeiltasten senden.
+
+## Buch anlegen: `books/<name>.json`
+
+    { "title": "Mein Buch",
+      "cues": [
+        { "label": "Im Wald",    "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
+        { "label": "Es raschelt", "oneshot": "rascheln.mp3" },
+        { "label": "Zauber",     "scene": {"name": "Polarlicht", "room": "Wohnzimmer", "dynamic": true} },
+        { "label": "Gute Nacht", "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
+          "triggers": ["gute Nacht"] } ] }
+
+- `scene`: Name exakt wie in der Hue-App (Gross-/Kleinschreibung egal); `room` nötig, wenn der
+  Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
+- `loop`: Dateiname = Klangteppich überblenden, `null` = ausblenden, Feld weglassen = weiterlaufen lassen.
+- `oneshot`: Einzeleffekt, einmal abgespielt (nur vorwärts, nicht bei «Zurück»).
+- `triggers`: Stichwörter für die spätere Spracherkennung (Stufe 2), derzeit ungenutzt.
+- Sounds liegen in `sounds/` (mp3, m4a, wav). Die zwei `demo-*.wav` sind generierte Testtöne.
+- Die Szenennamen im Beispielbuch sind Platzhalter und an die eigenen Szenen anzupassen.
+
+## Tests
+
+    python3 -m unittest discover tests

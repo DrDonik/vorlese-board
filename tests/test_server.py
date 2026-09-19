@@ -1,0 +1,166 @@
+"""Tests gegen eine simulierte Hue Bridge (HTTP statt HTTPS, gleiche API-Form).
+
+Start: python3 -m unittest discover tests
+"""
+import json
+import sys
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import server  # noqa: E402
+
+KEY = "test-key"
+ROOMS = [{"id": "r1", "metadata": {"name": "Wohnzimmer"}},
+         {"id": "r2", "metadata": {"name": "Kinderzimmer"}}]
+ZONES = [{"id": "z1", "metadata": {"name": "Leseecke"}}]
+SCENES = [
+    {"id": "s1", "metadata": {"name": "Nachtlicht"}, "group": {"rid": "r1"}},
+    {"id": "s2", "metadata": {"name": "Nachtlicht"}, "group": {"rid": "r2"}},
+    {"id": "s3", "metadata": {"name": "Entspannen"}, "group": {"rid": "r1"}},
+    {"id": "s4", "metadata": {"name": "Lesen"}, "group": {"rid": "z1"}},
+]
+
+
+class MockBridge(BaseHTTPRequestHandler):
+    recalls = []
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, status, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _auth(self):
+        if self.headers.get("hue-application-key") != KEY:
+            self._send(403, {"errors": [{"description": "unauthorized"}]})
+            return False
+        return True
+
+    def do_GET(self):
+        if not self._auth():
+            return
+        data = {"/clip/v2/resource/room": ROOMS, "/clip/v2/resource/zone": ZONES,
+                "/clip/v2/resource/scene": SCENES}.get(self.path)
+        self._send(200 if data is not None else 404, {"data": data or [], "errors": []})
+
+    def do_PUT(self):
+        if not self._auth():
+            return
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        MockBridge.recalls.append((self.path.rsplit("/", 1)[-1], body))
+        self._send(200, {"data": [], "errors": []})
+
+
+def start(handler):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}"
+
+
+def call(url, method="GET", body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+class WithBridge(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge_srv, bridge_url = start(MockBridge)
+        server.Handler.bridge = server.Bridge(bridge_url, KEY)
+        cls.app_srv, cls.app = start(server.Handler)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app_srv.shutdown()
+        cls.bridge_srv.shutdown()
+
+    def setUp(self):
+        MockBridge.recalls.clear()
+
+    def test_unique_scene_with_room(self):
+        s, b = call(self.app + "/api/scene", "POST", {"name": "Nachtlicht", "room": "Kinderzimmer"})
+        self.assertEqual(s, 200, b)
+        self.assertEqual(MockBridge.recalls, [("s2", {"recall": {"action": "active"}})])
+
+    def test_case_insensitive_and_zone(self):
+        s, _ = call(self.app + "/api/scene", "POST", {"name": "lesen", "room": "leseecke"})
+        self.assertEqual(s, 200)
+        self.assertEqual(MockBridge.recalls[0][0], "s4")
+
+    def test_dynamic_recall(self):
+        call(self.app + "/api/scene", "POST", {"name": "Entspannen", "dynamic": True})
+        self.assertEqual(MockBridge.recalls[0][1], {"recall": {"action": "dynamic_palette"}})
+
+    def test_ambiguous_scene_rejected(self):
+        s, b = call(self.app + "/api/scene", "POST", {"name": "Nachtlicht"})
+        self.assertEqual(s, 404)
+        self.assertIn("2 Treffer", json.loads(b)["error"])
+        self.assertEqual(MockBridge.recalls, [])
+
+    def test_missing_scene(self):
+        s, b = call(self.app + "/api/scene", "POST", {"name": "Gibtsnicht"})
+        self.assertEqual(s, 404)
+        self.assertIn("0 Treffer", json.loads(b)["error"])
+
+    def test_bad_request(self):
+        s, _ = call(self.app + "/api/scene", "POST", {"room": "Wohnzimmer"})
+        self.assertEqual(s, 400)
+
+    def test_books_and_example(self):
+        s, b = call(self.app + "/api/books")
+        j = json.loads(b)
+        self.assertTrue(j["lights"])
+        self.assertIn("beispiel", [x["id"] for x in j["books"]])
+        s, b = call(self.app + "/api/books/beispiel")
+        self.assertEqual(s, 200)
+        self.assertGreater(len(json.loads(b)["cues"]), 0)
+
+    def test_static_and_sounds(self):
+        self.assertEqual(call(self.app + "/")[0], 200)
+        self.assertEqual(call(self.app + "/sounds/demo-glocke.wav")[0], 200)
+
+    def test_no_path_traversal(self):
+        for p in ("/static/../server.py", "/sounds/../server.py",
+                  "/static/%2e%2e/server.py", "/api/books/..%2fserver", "/server.py"):
+            s, body = call(self.app + p)
+            self.assertNotEqual(s, 200, p)
+            self.assertNotIn(b"import", body, p)
+
+    def test_example_book_scenes_have_names(self):
+        book = json.loads((server.ROOT / "books" / "beispiel.json").read_text(encoding="utf-8"))
+        for cue in book["cues"]:
+            self.assertIn("label", cue)
+            if "scene" in cue:
+                self.assertIn("name", cue["scene"])
+
+
+class DryRun(unittest.TestCase):
+    def test_dry_run_without_bridge(self):
+        server.Handler.bridge = None
+        srv, url = start(server.Handler)
+        try:
+            s, b = call(url + "/api/scene", "POST", {"name": "Nachtlicht"})
+            self.assertEqual(s, 200)
+            self.assertTrue(json.loads(b)["dry_run"])
+        finally:
+            srv.shutdown()
+
+
+if __name__ == "__main__":
+    unittest.main()

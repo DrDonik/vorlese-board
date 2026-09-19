@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#151a2b">
+<title>Vorlesen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night: #151a2b;
+    --dusk: #1e2540;
+    --lamp: #e6b46e;
+    --lamp-dim: #9c7a4c;
+    --mist: #7f86a3;
+    --warn: #d88c8c;
+    --serif: "Literata", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--night); color: var(--lamp); font-family: var(--serif);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--lamp-dim); outline-offset: 4px; }
+  [hidden] { display: none !important; }
+  #next:focus-visible { outline: none; } /* ganze Fläche ist die Taste */
+
+  /* Buchauswahl */
+  #shelf { max-width: 36rem; margin: 0 auto; padding: 3rem 1.5rem; }
+  #shelf h1 { font-weight: 400; font-size: 1.1rem; color: var(--mist); margin: 0 0 1.5rem; }
+  .book {
+    display: block; width: 100%; text-align: left; padding: 1.1rem 0;
+    border-bottom: 1px solid var(--dusk); font-size: 1.6rem; line-height: 1.25;
+  }
+  .book small { display: block; font-size: .9rem; color: var(--mist); margin-top: .25rem; }
+  .hint { color: var(--mist); font-size: .95rem; line-height: 1.5; margin-top: 2rem; }
+
+  /* Lesemodus */
+  #stage { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+  #top { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; color: var(--mist); }
+  #top .title { flex: 1; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #top button { font-size: .95rem; color: var(--mist); padding: .5rem; }
+  #next {
+    display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    padding: 0 8vw; text-align: left; width: 100%;
+  }
+  #next .now { font-size: 1rem; color: var(--mist); margin-bottom: 1.5rem; min-height: 1.4em; }
+  #next .label { font-size: clamp(2.2rem, 7vw, 4.2rem); line-height: 1.1; font-weight: 600; }
+  #next:active .label { color: var(--lamp-dim); }
+  #next.done .label { color: var(--mist); font-weight: 400; }
+  #bottom { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 1.25rem 1.5rem; }
+  #back { font-size: 1.05rem; color: var(--mist); padding: .75rem 1rem .75rem 0; }
+  #dots { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  #dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--dusk); }
+  #dots span.past { background: var(--lamp-dim); }
+  #dots span.current { background: var(--lamp); }
+  #status { min-height: 1.3em; padding: 0 1.25rem .75rem; font-size: .85rem; color: var(--warn); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    #next .label { transition: opacity .25s; }
+    #next.turning .label { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<main id="shelf">
+  <h1>Welches Buch lesen wir?</h1>
+  <div id="books"></div>
+  <p class="hint" id="shelfHint"></p>
+</main>
+
+<main id="stage" hidden>
+  <div id="top">
+    <span class="title" id="bookTitle"></span>
+    <button id="close">Andere Bücher</button>
+  </div>
+  <button id="next" aria-live="polite">
+    <span class="now" id="now"></span>
+    <span class="label" id="nextLabel"></span>
+  </button>
+  <div>
+    <div id="status" role="status"></div>
+    <div id="bottom">
+      <button id="back">Zurück</button>
+      <div id="dots" aria-hidden="true"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const FADE = 2.5;          // Sekunden Überblendzeit für Klangteppiche
+const $ = id => document.getElementById(id);
+
+// ---------- Audio ----------
+const audio = {
+  ctx: null, buffers: {}, loop: null,   // loop = {name, src, gain}
+  init() {
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === "suspended") this.ctx.resume();
+  },
+  async load(names) {
+    const missing = [];
+    await Promise.all(names.filter(n => !this.buffers[n]).map(async n => {
+      try {
+        const r = await fetch("/sounds/" + encodeURIComponent(n));
+        if (!r.ok) throw new Error(r.status);
+        this.buffers[n] = await this.ctx.decodeAudioData(await r.arrayBuffer());
+      } catch { missing.push(n); }
+    }));
+    return missing;
+  },
+  fadeOutLoop() {
+    if (!this.loop) return;
+    const { src, gain } = this.loop, t = this.ctx.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0, t + FADE);
+    src.stop(t + FADE + 0.1);
+    this.loop = null;
+  },
+  setLoop(name) {
+    if (this.loop && this.loop.name === name) return;
+    this.fadeOutLoop();
+    if (!name || !this.buffers[name]) return;
+    const src = this.ctx.createBufferSource(), gain = this.ctx.createGain();
+    src.buffer = this.buffers[name]; src.loop = true;
+    src.connect(gain).connect(this.ctx.destination);
+    const t = this.ctx.currentTime;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(1, t + FADE);
+    src.start();
+    this.loop = { name, src, gain };
+  },
+  playOnce(name) {
+    if (!this.buffers[name]) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.buffers[name];
+    src.connect(this.ctx.destination);
+    src.start();
+  },
+};
+
+// ---------- Zustand ----------
+let book = null, idx = -1;
+
+// Effektiver Zustand bis Cue i: letzte Szene, aktueller Loop.
+// loop: Dateiname = wechseln, null = ausblenden, fehlt = beibehalten.
+function effective(i) {
+  let scene = null, loop = null;
+  for (let k = 0; k <= i; k++) {
+    const c = book.cues[k];
+    if (c.scene) scene = c.scene;
+    if ("loop" in c) loop = c.loop;
+  }
+  return { scene, loop };
+}
+
+async function setScene(scene) {
+  if (!scene) return;
+  try {
+    const r = await fetch("/api/scene", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(scene),
+    });
+    const j = await r.json();
+    if (!r.ok) status(j.error || "Szene nicht gesetzt");
+  } catch { status("Server nicht erreichbar"); }
+}
+
+function status(msg) { $("status").textContent = msg || ""; }
+
+function render() {
+  const cues = book.cues, cur = cues[idx], nxt = cues[idx + 1];
+  $("now").textContent = cur ? "Jetzt: " + cur.label : "Bereit";
+  $("nextLabel").textContent = nxt ? nxt.label : "Ende des Buchs";
+  $("next").classList.toggle("done", !nxt);
+  $("back").disabled = idx < 0;
+  $("back").style.visibility = idx < 0 ? "hidden" : "visible";
+  $("dots").innerHTML = cues.map((_, k) =>
+    `<span class="${k < idx ? "past" : k === idx ? "current" : ""}"></span>`).join("");
+}
+
+function turn() {
+  const el = $("next");
+  el.classList.add("turning");
+  setTimeout(() => el.classList.remove("turning"), 250);
+}
+
+async function go(to, forward) {
+  if (to < -1 || to >= book.cues.length) return;
+  audio.init();
+  status("");
+  idx = to;
+  turn(); render();
+  if (idx < 0) { audio.fadeOutLoop(); return; }
+  const cue = book.cues[idx];
+  if (forward) {
+    if (cue.oneshot) audio.playOnce(cue.oneshot);
+    if (cue.scene) setScene(cue.scene);
+    if ("loop" in cue) audio.setLoop(cue.loop);
+  } else {
+    // Rückwärts: Zustand von Cue idx wiederherstellen, ohne Einzeleffekte.
+    const e = effective(idx);
+    setScene(e.scene);
+    audio.setLoop(e.loop);
+  }
+}
+
+// ---------- Screens ----------
+async function openBook(id) {
+  audio.init();                       // erster Tipp entsperrt Audio auf iOS
+  const r = await fetch("/api/books/" + id);
+  const j = await r.json();
+  if (!r.ok) { $("shelfHint").textContent = j.error; return; }
+  book = j; idx = -1;
+  const sounds = [...new Set(book.cues.flatMap(c => [c.loop, c.oneshot]).filter(Boolean))];
+  $("bookTitle").textContent = book.title;
+  $("shelf").hidden = true; $("stage").hidden = false;
+  render();
+  const missing = await audio.load(sounds);
+  if (missing.length) status("Fehlende Sounds: " + missing.join(", "));
+  try { await navigator.wakeLock?.request("screen"); } catch {}
+  $("next").focus();
+}
+
+function closeBook() {
+  audio.fadeOutLoop();
+  book = null;
+  $("stage").hidden = true; $("shelf").hidden = false;
+}
+
+async function loadShelf() {
+  try {
+    const j = await (await fetch("/api/books")).json();
+    $("books").innerHTML = j.books.map(b =>
+      `<button class="book" data-id="${b.id}">${b.title}<small>${
+        b.error ? "Datei fehlerhaft" : b.cues + " Momente"}</small></button>`).join("");
+    $("shelfHint").textContent = j.books.length ? (j.lights ? "" :
+      "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt.")
+      : "Noch keine Bücher. Lege eine JSON-Datei im Ordner books an.";
+  } catch { $("shelfHint").textContent = "Server nicht erreichbar."; }
+}
+
+$("books").addEventListener("click", e => {
+  const b = e.target.closest(".book");
+  if (b) openBook(b.dataset.id);
+});
+$("next").addEventListener("click", () => go(idx + 1, true));
+$("back").addEventListener("click", () => go(idx - 1, false));
+$("close").addEventListener("click", closeBook);
+// Pfeiltasten: Bluetooth-Seitenwender und Tastaturen senden diese
+document.addEventListener("keydown", e => {
+  if (!book) return;
+  if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(idx + 1, true); }
+  if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); go(idx - 1, false); }
+});
+loadShelf();
+</script>
+</body>
+</html>

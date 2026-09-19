@@ -1,0 +1,14 @@
+{
+  "title": "Beispielbuch",
+  "cues": [
+    { "label": "Ein ruhiger Abend", "scene": { "name": "Entspannen", "room": "Esszimmer" },
+      "loop": "demo-rauschen.wav", "triggers": [] },
+    { "label": "Die Glocke schlägt", "oneshot": "demo-glocke.wav", "triggers": ["Glocke"] },
+    { "label": "Es wird Nacht", "scene": { "name": "Nachtlicht", "room": "Esszimmer" },
+      "triggers": ["Nacht"] },
+    { "label": "Zauberwald", "scene": { "name": "Tropendämmerung", "room": "Esszimmer", "dynamic": true },
+      "triggers": ["Wald"] },
+    { "label": "Ende", "scene": { "name": "Lesen", "room": "Esszimmer" }, "loop": null,
+      "triggers": ["Ende"] }
+  ]
+}

@@ -1,0 +1,6 @@
+# Bridge-Zugangsdaten (von `server.py --pair` erzeugt)
+config.json
+
+.DS_Store
+__pycache__/
+.claude/settings.local.json
