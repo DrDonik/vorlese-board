@@ -7,6 +7,7 @@ beim Lesen tippt man nur «weiter».
 
     python3 server.py --pair     # Bridge-IP eingeben, Knopf auf der Bridge drücken
     python3 server.py --scenes   # zeigt alle Hue-Szenen mit Raum
+    python3 server.py --pin      # PIN (6 Ziffern) zum Bearbeiten auf iPad und iPhone
 
 Ohne `--pair` läuft alles im Trockenmodus: Sounds spielen, Szenen erscheinen nur im Terminal.
 
@@ -29,6 +30,9 @@ Im Editor:
 - Licht wählen schaltet die Szene sofort, Sounds werden beim Auswählen angespielt.
 - «Ab hier probelesen» springt in den Lesemodus, mit Licht und Klang wie vor diesem Moment.
 - Jede Änderung ist sofort gespeichert. Neue Sounds in `sounds/` legen, sie erscheinen gleich in der Auswahl.
+
+Am Mac (`http://localhost:8765`) geht das ohne PIN, auf iPad und iPhone erst mit PIN.
+Nach einem Neustart des Servers fragt die App einmal neu nach der PIN; zum Vorlesen braucht es nie eine.
 
 Die Bücher liegen als JSON in `books/<name>.json` und lassen sich auch von Hand bearbeiten.
 Der Editor schreibt einen Moment pro Zeile und überschreibt keine Datei, die inzwischen

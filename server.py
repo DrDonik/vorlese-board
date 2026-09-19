@@ -5,21 +5,28 @@ Nur Python-Standardbibliothek. Start:
     python3 server.py            # Server auf Port 8765
     python3 server.py --pair     # einmalig: App-Key von der Bridge holen
     python3 server.py --scenes   # alle Hue-Szenen mit Raum auflisten
+    python3 server.py --pin      # PIN zum Bearbeiten von iPad und iPhone setzen
 
 Ohne config.json laeuft der Server im Trockenmodus: Szenenaufrufe werden
 nur protokolliert, Sounds funktionieren trotzdem.
 """
+import getpass
 import hashlib
+import hmac
+import ipaddress
 import json
 import os
 import re
+import secrets
 import ssl
 import sys
 import threading
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from http.cookies import CookieError, SimpleCookie
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -36,11 +43,48 @@ SOUND_TYPES = {".mp3", ".m4a", ".wav", ".aac"}
 MAX_BODY = 1_000_000
 BOOK_LOCK = threading.Lock()  # Vergleichen und Schreiben einer Buchdatei am Stueck
 
+# Bearbeiten ist durch eine PIN geschuetzt (ADR 0006).
+PIN_ITERATIONS = 600_000
+PIN_MAX_FAILURES = 5
+PIN_LOCK_SECONDS = 60
+SESSION_COOKIE = "vorlese_session"
+EDIT_HEADER = "X-Vorlese-Board"  # fremde Webseiten koennen ihn nicht ohne CORS-Freigabe senden
+NO_PIN = ("Bearbeiten geht auf diesem Gerät erst, wenn am Mac eine PIN gesetzt ist: "
+          "python3 server.py --pin")
+
 
 def load_config():
     if CONFIG_PATH.exists():
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     return {}
+
+
+def update_config(**values):
+    """Einzelne Eintraege setzen, die uebrigen (Bridge, PIN) bleiben erhalten."""
+    config = load_config()
+    config.update(values)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+
+
+def pin_hash(pin, salt):
+    return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, PIN_ITERATIONS)
+
+
+def trusted_host(host):
+    """Host-Header, der sicher dieses Geraet meint: localhost, ein .local-Name oder eine IP.
+
+    Webseiten mit eigener Domain, die per DNS-Rebinding auf den Mac zeigen, fallen damit weg.
+    """
+    name = urllib.parse.urlsplit("//" + (host or "")).hostname
+    if not name:
+        return False
+    if name == "localhost" or name.endswith(".local"):
+        return True
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
 
 
 class Bridge:
@@ -266,6 +310,13 @@ def make_bridge(config):
 
 class Handler(SimpleHTTPRequestHandler):
     bridge = None  # wird in main() gesetzt
+    pin = None     # {salt, hash} aus config.json, wird in main() gesetzt
+
+    # Zustand der PIN-Pruefung, gemeinsam fuer alle Anfragen bis zum Neustart
+    sessions = set()
+    pin_failures = 0
+    pin_locked_until = 0.0
+    pin_lock = threading.Lock()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -274,13 +325,74 @@ class Handler(SimpleHTTPRequestHandler):
         if "/api/" in (self.path or ""):
             super().log_message(fmt, *args)
 
-    def _json(self, status, payload):
+    def _json(self, status, payload, headers=()):
         body = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _edit_access(self):
+        """ok: darf bearbeiten; pin: PIN noetig; no_pin: noch keine PIN gesetzt.
+
+        Am Mac selbst (localhost) braucht es keine PIN; dort liegen die Dateien ohnehin offen.
+        """
+        if self.client_address[0] in ("127.0.0.1", "::1"):
+            return "ok"
+        try:
+            cookie = SimpleCookie(self.headers.get("Cookie") or "").get(SESSION_COOKIE)
+        except CookieError:
+            cookie = None
+        if cookie and cookie.value in self.sessions:
+            return "ok"
+        return "pin" if self.pin else "no_pin"
+
+    def _guard(self, need_session=True):
+        """Fehlerantwort senden und True liefern, wenn die Anfrage nicht bearbeiten darf."""
+        if not trusted_host(self.headers.get("Host")) or self.headers.get(EDIT_HEADER) != "1":
+            self._json(403, {"error": "Anfrage abgelehnt"})
+            return True
+        if not need_session:
+            return False
+        access = self._edit_access()
+        if access == "pin":
+            self._json(401, {"error": "PIN nötig", "pin": True})
+        elif access == "no_pin":
+            self._json(403, {"error": NO_PIN})
+        return access != "ok"
+
+    def _check_pin(self):
+        """PIN pruefen; nach zu vielen Fehlversuchen kurz sperren. Erfolg setzt das Sitzungs-Cookie."""
+        if self._guard(need_session=False):
+            return
+        if not self.pin:
+            return self._json(403, {"error": NO_PIN})
+        req = self._read_json()
+        pin = req.get("pin") if isinstance(req, dict) else None
+        cls = Handler
+        with cls.pin_lock:  # auch die Hash-Berechnung, damit Versuche nacheinander laufen
+            wait = cls.pin_locked_until - time.monotonic()
+            if wait > 0:
+                return self._json(429, {"error": f"Zu viele Versuche. In {int(wait) + 1} Sekunden wieder möglich."})
+            if isinstance(pin, str) and hmac.compare_digest(
+                    pin_hash(pin, bytes.fromhex(self.pin["salt"])).hex(), self.pin["hash"]):
+                cls.pin_failures = 0
+                token = secrets.token_urlsafe(32)
+                cls.sessions.add(token)
+            else:
+                cls.pin_failures += 1
+                if cls.pin_failures >= PIN_MAX_FAILURES:
+                    cls.pin_failures = 0
+                    cls.pin_locked_until = time.monotonic() + PIN_LOCK_SECONDS
+                    return self._json(429, {"error": f"Zu viele Versuche. In {PIN_LOCK_SECONDS} Sekunden wieder möglich."})
+                left = PIN_MAX_FAILURES - cls.pin_failures
+                return self._json(403, {"error": f"Falsche PIN, noch {left} Versuch{'e' if left > 1 else ''}"})
+        # Gueltig bis zum Neustart des Servers; Max-Age haelt das Cookie so lange im Browser.
+        cookie = f"{SESSION_COOKIE}={token}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict"
+        return self._json(200, {"ok": True}, [("Set-Cookie", cookie)])
 
     def _read_json(self):
         """Anfragekoerper als JSON, oder None, wenn er fehlt, zu gross oder kein JSON ist."""
@@ -331,6 +443,8 @@ class Handler(SimpleHTTPRequestHandler):
             book_id, extra = self._book_path()
             if book_id is None or extra not in (None, "edit"):
                 return self._json(404, {"error": "Nicht gefunden"})
+            if extra == "edit" and self._guard():
+                return
             f = BOOKS_DIR / f"{book_id}.json"
             if not f.exists():
                 return self._json(404, {"error": "Buch nicht gefunden"})
@@ -364,13 +478,15 @@ class Handler(SimpleHTTPRequestHandler):
                           "cues": len(data["cues"]),
                           "problems": [p["text"] for p in book_problems(data, scenes)]})
         return self._json(200, {"books": books, "lights": self.bridge is not None,
-                                "bridge_error": bridge_error})
+                                "bridge_error": bridge_error, "edit": self._edit_access()})
 
     def do_PUT(self):
         """Buch speichern: {version, book}. Die Version muss dem Stand auf der Platte entsprechen."""
         book_id, extra = self._book_path()
         if book_id is None or extra is not None:
             return self._json(404, {"error": "Nicht gefunden"})
+        if self._guard():
+            return
         req = self._read_json()
         if not isinstance(req, dict) or not isinstance(req.get("version"), str):
             return self._json(400, {"error": "Erwartet: {version, book}"})
@@ -392,6 +508,8 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/books":
             return self._create_book()
+        if self.path == "/api/pin":
+            return self._check_pin()
         if self.path != "/api/scene":
             return self._json(404, {"error": "Nicht gefunden"})
         req = self._read_json()
@@ -411,6 +529,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _create_book(self):
         """Neues Buch mit einem leeren Moment; der Dateiname folgt aus dem Titel."""
+        if self._guard():
+            return
         req = self._read_json()
         title = req.get("title") if isinstance(req, dict) else None
         if not isinstance(title, str) or not title.strip():
@@ -436,15 +556,28 @@ def pair():
         result = json.loads(resp.read().decode())[0]
     if "error" in result:
         sys.exit(f"Fehler: {result['error'].get('description')}")
-    CONFIG_PATH.write_text(json.dumps(
-        {"bridge_ip": ip, "app_key": result["success"]["username"]}, indent=2))
+    update_config(bridge_ip=ip, app_key=result["success"]["username"])
     print(f"Gespeichert in {CONFIG_PATH.name}.")
+
+
+def set_pin():
+    pin = getpass.getpass("Neue PIN zum Bearbeiten (6 Ziffern): ")
+    if not re.fullmatch(r"[0-9]{6}", pin):
+        sys.exit("Die PIN muss aus genau 6 Ziffern bestehen.")
+    if getpass.getpass("PIN wiederholen: ") != pin:
+        sys.exit("Die beiden Eingaben stimmen nicht überein.")
+    salt = secrets.token_bytes(16)
+    update_config(pin={"salt": salt.hex(), "hash": pin_hash(pin, salt).hex()})
+    print(f"PIN gespeichert in {CONFIG_PATH.name}. Einen laufenden Server neu starten.")
 
 
 def main():
     if "--pair" in sys.argv:
         return pair()
-    bridge = make_bridge(load_config())
+    if "--pin" in sys.argv:
+        return set_pin()
+    config = load_config()
+    bridge = make_bridge(config)
     if "--scenes" in sys.argv:
         if not bridge:
             sys.exit("Keine config.json. Zuerst: python3 server.py --pair")
@@ -452,8 +585,10 @@ def main():
             print(f"{s['room']:<20} {s['name']}")
         return
     Handler.bridge = bridge
+    Handler.pin = config.get("pin")
     mode = "mit Bridge" if bridge else "Trockenmodus (keine config.json)"
-    print(f"Vorlese-Board laeuft auf http://localhost:{PORT} ({mode})")
+    editing = "mit PIN" if Handler.pin else "nur am Mac, keine PIN gesetzt"
+    print(f"Vorlese-Board laeuft auf http://localhost:{PORT} ({mode}; Bearbeiten {editing})")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 

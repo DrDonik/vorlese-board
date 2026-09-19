@@ -41,8 +41,9 @@ A new book gets its file name from its title (lower case, umlauts spelled out, a
 - The PIN has six digits and is set on the Mac with `server.py --pin`. Only a PBKDF2 hash is stored, in `config.json`.
 - Entering the correct PIN creates a random session token, kept in server memory and sent as an `HttpOnly`, `SameSite=Strict` cookie. It is valid until the server restarts.
 - After five wrong attempts, PIN entry is locked for one minute.
-- Every write request must carry the session cookie and a custom request header, and its `Host` header must name the Mac (`localhost`, its `.local` name or its own address). This blocks cross-site requests and DNS rebinding from web pages opened on any device in the home network.
+- Every write request, and loading a book for editing, must carry the session cookie and a custom request header, and its `Host` header must be `localhost`, a `.local` name or an IP address. A web page on the internet can produce neither: the header would need a CORS permission the server never grants, and a DNS rebinding attack arrives with the attacker's own domain as host. This blocks cross-site requests and DNS rebinding from web pages opened on any device in the home network.
 - Requests from the Mac itself (`localhost`) need no PIN, since whoever sits at the Mac can edit the files directly anyway. The header and host checks still apply.
+- As long as no PIN is set, editing works only on the Mac. Other devices do not show "Bearbeiten" or "Neues Buch"; the shelf says how to set a PIN.
 - Write requests can only create, change or delete files named `books/<valid id>.json`.
 
 ## Consequences

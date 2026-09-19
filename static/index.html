@@ -57,15 +57,18 @@
   /* Buchauswahl */
   #shelf { max-width: 36rem; margin: 0 auto; padding: 3rem 1.5rem; }
   #shelf h1 { font-weight: 400; font-size: 1.1rem; color: var(--mist); margin: 0 0 1.5rem; }
-  .entry { display: flex; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--dusk); }
+  .entry {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+    border-bottom: 1px solid var(--dusk);
+  }
   .book {
-    flex: 1; min-width: 0; text-align: left; padding: 1.1rem 0;
+    text-align: left; padding: 1.1rem 0;
     font-size: 1.6rem; line-height: 1.25;
   }
   .book:disabled { color: var(--mist); }
   .book small { display: block; font-size: .9rem; color: var(--mist); margin-top: .25rem; }
   .entry .edit { font-size: .95rem; color: var(--mist); padding: .75rem 0 .75rem 1rem; }
-  .entry .problems { flex-basis: 100%; margin: -.5rem 0 1.1rem; }
+  .entry .problems { grid-column: 1 / -1; margin: -.5rem 0 1.1rem; }
   #addBook { font-size: 1.2rem; color: var(--mist); padding: 1.1rem 0; }
   #newBookForm { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: 1rem 0 0; }
   #newTitle { flex: 1; min-width: 12rem; font-size: 1.2rem; }
@@ -122,7 +125,7 @@
   #toast button { color: var(--lamp); }
 
   /* Auswahl für Licht und Klang */
-  #picker {
+  .overlay {
     position: fixed; inset: 0; display: flex; justify-content: center; align-items: flex-start;
     padding: 4vh 1rem; background: rgba(8, 10, 18, .75);
   }
@@ -146,6 +149,11 @@
   .option.sel { background: var(--dusk); border-radius: 8px; }
   .option small { font-size: .85rem; color: var(--mist); white-space: nowrap; }
   .option.missing, .option.missing small { color: var(--warn); }
+  #pinForm { max-width: 22rem; }
+  #pinInput {
+    margin: 1rem 0 .25rem; font-size: 2rem; letter-spacing: .6em; text-align: center;
+    -webkit-text-security: disc;          /* verdeckt, ohne dass Safari ein Passwort speichern will */
+  }
   #pickerDynamic { display: flex; align-items: center; gap: .6rem; padding-top: .75rem; font-size: .95rem; color: var(--mist); }
 
   /* Lesemodus */
@@ -203,7 +211,7 @@
   <div id="toast" role="status" hidden><span id="toastText"></span><button id="undo">Rückgängig</button></div>
 </main>
 
-<div id="picker" hidden>
+<div id="picker" class="overlay" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
     <div class="sheetTop"><span id="pickerTitle"></span><button id="pickerDone">Fertig</button></div>
     <input id="pickerSearch" type="search" autocomplete="off" aria-label="Suchen">
@@ -211,6 +219,14 @@
     <div id="pickerList"></div>
     <label id="pickerDynamic"><input type="checkbox" id="dynamic"> Dynamisch abspielen</label>
   </div>
+</div>
+
+<div id="pinDialog" class="overlay" hidden>
+  <form class="sheet" id="pinForm" role="dialog" aria-modal="true" aria-labelledby="pinTitle">
+    <div class="sheetTop"><span id="pinTitle">PIN zum Bearbeiten</span><button type="button" id="pinCancel">Abbrechen</button></div>
+    <input id="pinInput" inputmode="numeric" maxlength="6" autocomplete="off" aria-label="PIN, 6 Ziffern">
+    <p class="error" id="pinError" role="status"></p>
+  </form>
 </div>
 
 <main id="stage" hidden>
@@ -293,6 +309,10 @@ const audio = {
 
 // ---------- Zustand ----------
 let book = null, bookId = null, idx = -1;
+// Bearbeiten auf diesem Gerät: ok, pin (PIN nötig) oder no_pin (nur am Mac), laut Server
+let editAccess = "ok";
+// Der eigene Header weist Anfragen fremder Webseiten ab (ADR 0006).
+const EDIT_HEADERS = { "Content-Type": "application/json", "X-Vorlese-Board": "1" };
 
 // Effektiver Zustand bis Cue i: letzte Szene, aktueller Loop.
 // loop: Dateiname = wechseln, null = ausblenden, fehlt = beibehalten.
@@ -406,7 +426,7 @@ function shelfEntry(b) {
       + (problems.length ? " · " + plural(problems.length, "Problem", "Probleme") : "");
   btn.append(b.title, small);
   entry.append(btn);
-  if (!b.error) {
+  if (!b.error && editAccess !== "no_pin") {
     const editBtn = h("button", { className: "edit", textContent: "Bearbeiten" });
     editBtn.dataset.id = b.id;
     entry.append(editBtn);
@@ -426,12 +446,15 @@ async function loadShelf() {
   try {
     const j = await (await fetch("/api/books")).json();
     if (request !== shelfRequest) return;   // eine neuere Anfrage läuft schon
+    setEditAccess(j.edit);
     $("books").replaceChildren(...j.books.map(shelfEntry));
-    $("shelfHint").textContent =
-      !j.books.length ? "Noch keine Bücher. Leg mit «Neues Buch» das erste an."
-      : !j.lights ? "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt und nicht geprüft."
-      : j.bridge_error ? "Szenen nicht geprüft. " + j.bridge_error
-      : "";
+    const canEdit = editAccess !== "no_pin";
+    $("shelfHint").textContent = [
+      !j.books.length && (canEdit ? "Noch keine Bücher. Leg mit «Neues Buch» das erste an." : "Noch keine Bücher."),
+      !j.lights ? "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt und nicht geprüft."
+        : j.bridge_error && "Szenen nicht geprüft. " + j.bridge_error,
+      !canEdit && "Bearbeiten geht auf diesem Gerät erst, wenn am Mac eine PIN gesetzt ist: python3 server.py --pin",
+    ].filter(Boolean).join(" ");
   } catch {
     if (request === shelfRequest) $("shelfHint").textContent = "Server nicht erreichbar.";
   }
@@ -453,9 +476,13 @@ function h(tag, props = {}, ...children) {
 async function openEditor(id, open = -1, focus = null) {
   let r, j;
   try {
-    r = await fetch(`/api/books/${encodeURIComponent(id)}/edit`);
+    r = await fetch(`/api/books/${encodeURIComponent(id)}/edit`, { headers: EDIT_HEADERS });
     j = await r.json();
   } catch { return "Server nicht erreichbar"; }
+  if (r.status === 401) {                 // Sitzung abgelaufen, etwa nach Neustart des Servers
+    editAccess = "pin";
+    return (await askPin()) ? openEditor(id, open, focus) : null;
+  }
   if (!r.ok) return j.error;
   if (book) { audio.fadeOutLoop(); book = null; bookId = null; }
   closePicker(false);
@@ -520,13 +547,19 @@ async function saveLoop(e) {
     let r, j;
     try {
       r = await fetch(`/api/books/${encodeURIComponent(e.id)}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
+        method: "PUT", headers: EDIT_HEADERS,
         body: JSON.stringify({ version: e.version, book: e.book }),
       });
       j = await r.json();
     } catch {
       e.dirty = true;
       report("Nicht gespeichert: Server nicht erreichbar.", true, retry);
+      return false;
+    }
+    if (r.status === 401) {
+      e.dirty = true;
+      if (await askPin()) continue;
+      report("Nicht gespeichert: Ohne PIN lässt sich nichts ändern.", true, retry);
       return false;
     }
     if (r.status === 409) {
@@ -875,13 +908,80 @@ $("edDone").addEventListener("click", leaveEditor);
 $("addMoment").addEventListener("click", () => insertMoment(edit.book.cues.length));
 $("undo").addEventListener("click", undoDelete);
 
+// ---------- PIN ----------
+function setEditAccess(access) {
+  editAccess = access;
+  const canEdit = access !== "no_pin";
+  $("addBook").hidden = !canEdit || !$("newBookForm").hidden;
+  if (!canEdit) $("newBookForm").hidden = true;
+  $("editBook").hidden = !canEdit;
+}
+
+// Vor dem Bearbeiten: Braucht es eine PIN, öffnet der Dialog noch in der Tipp-Geste,
+// damit iPad und iPhone gleich die Zahlentastatur zeigen.
+async function withEditAccess(run) {
+  if (editAccess === "pin" && !(await askPin())) return;
+  run();
+}
+
+let pinPrompt = null;   // {promise, resolve}, solange der Dialog offen ist
+
+function askPin() {
+  if (pinPrompt) return pinPrompt.promise;
+  let resolve;
+  const promise = new Promise(r => { resolve = r; });
+  pinPrompt = { promise, resolve };
+  $("pinInput").value = "";
+  $("pinError").textContent = "";
+  $("pinDialog").hidden = false;
+  $("pinInput").focus();
+  return promise;
+}
+
+function closePin(ok) {
+  if (!pinPrompt) return;
+  const { resolve } = pinPrompt;
+  pinPrompt = null;
+  $("pinDialog").hidden = true;
+  if (ok) editAccess = "ok";
+  resolve(ok);
+}
+
+async function submitPin() {
+  const pin = $("pinInput").value;
+  if (!/^[0-9]{6}$/.test(pin)) { $("pinError").textContent = "6 Ziffern eingeben"; return; }
+  $("pinInput").disabled = true;
+  try {
+    const r = await fetch("/api/pin", { method: "POST", headers: EDIT_HEADERS, body: JSON.stringify({ pin }) });
+    const j = await r.json();
+    if (r.ok) return closePin(true);
+    $("pinError").textContent = j.error;
+  } catch {
+    $("pinError").textContent = "Server nicht erreichbar";
+  } finally {
+    $("pinInput").disabled = false;
+  }
+  $("pinInput").value = "";
+  $("pinInput").focus();
+}
+
+$("pinInput").addEventListener("input", () => {
+  const digits = $("pinInput").value.replace(/[^0-9]/g, "").slice(0, 6);
+  $("pinInput").value = digits;
+  $("pinError").textContent = "";
+  if (digits.length === 6) submitPin();   // ohne Extra-Tipp auf «OK»
+});
+$("pinForm").addEventListener("submit", e => { e.preventDefault(); submitPin(); });
+$("pinCancel").addEventListener("click", () => closePin(false));
+$("pinDialog").addEventListener("click", e => { if (e.target === $("pinDialog")) closePin(false); });
+
 // ---------- Neues Buch ----------
 function closeNewBook() { $("newBookForm").hidden = true; $("addBook").hidden = false; }
-$("addBook").addEventListener("click", () => {
+$("addBook").addEventListener("click", () => withEditAccess(() => {
   $("addBook").hidden = true; $("newBookForm").hidden = false;
   $("newTitle").value = ""; $("newBookError").textContent = "";
   $("newTitle").focus();
-});
+}));
 $("cancelBook").addEventListener("click", closeNewBook);
 $("newTitle").addEventListener("input", () => { $("newBookError").textContent = ""; });
 $("newBookForm").addEventListener("submit", async e => {
@@ -890,9 +990,13 @@ $("newBookForm").addEventListener("submit", async e => {
   if (!title) { $("newBookError").textContent = "Titel eingeben"; return; }
   $("createBook").disabled = true;
   try {
-    const r = await fetch("/api/books", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
-    });
+    const create = () => fetch("/api/books", { method: "POST", headers: EDIT_HEADERS, body: JSON.stringify({ title }) });
+    let r = await create();
+    while (r.status === 401) {          // Sitzung abgelaufen, etwa nach Neustart des Servers
+      editAccess = "pin";
+      if (!(await askPin())) return;
+      r = await create();
+    }
     const j = await r.json();
     if (!r.ok) { $("newBookError").textContent = j.error; return; }
     closeNewBook();
@@ -908,20 +1012,23 @@ $("newBookForm").addEventListener("submit", async e => {
 $("books").addEventListener("click", async e => {
   const editBtn = e.target.closest(".edit"), b = e.target.closest(".book");
   if (editBtn) {
-    const error = await openEditor(editBtn.dataset.id);
-    if (error) $("shelfHint").textContent = error;
+    withEditAccess(async () => {
+      const error = await openEditor(editBtn.dataset.id);
+      if (error) $("shelfHint").textContent = error;
+    });
   } else if (b) openBook(b.dataset.id);
 });
 $("next").addEventListener("click", () => go(idx + 1, true));
 $("back").addEventListener("click", () => go(idx - 1, false));
 $("close").addEventListener("click", closeBook);
 // Bearbeiten beim Moment, bei dem man gerade ist
-$("editBook").addEventListener("click", async () => {
+$("editBook").addEventListener("click", () => withEditAccess(async () => {
   const error = await openEditor(bookId, Math.min(Math.max(idx, 0), book.cues.length - 1));
   if (error) status(error);
-});
+}));
 // Pfeiltasten: Bluetooth-Seitenwender und Tastaturen senden diese
 document.addEventListener("keydown", e => {
+  if (pinPrompt) { if (e.key === "Escape") closePin(false); return; }
   if (picker && e.key === "Escape") { closePicker(); return; }
   if (!book) return;
   if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(idx + 1, true); }
