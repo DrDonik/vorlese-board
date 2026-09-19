@@ -1,5 +1,6 @@
 {
   "title": "Beispielbuch",
+  "room": "Esszimmer",
   "cues": [
     { "label": "Ein ruhiger Abend", "scene": { "name": "Entspannen", "room": "Esszimmer" },
       "loop": "demo-rauschen.wav", "triggers": [] },

@@ -8,6 +8,8 @@ Accepted
 
 Amends 0002, 0003
 
+Amended by 0007
+
 ## Context
 
 Writing book files by hand (ADR 0003) means working from memory: exact scene and room names from `server.py --scenes`, exact sound file names, and the three-way semantics of `loop` (file name, `null`, absent). Whether a scene fits a moment can only be judged by seeing it, which the hand-written file does not allow. ADR 0005 reports mistakes early, but does not remove the need to make them.

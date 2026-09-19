@@ -89,6 +89,8 @@
   #edStatus.warn { order: 1; flex-basis: 100%; padding-top: .5rem; text-align: left; color: var(--warn); }
   #edStatus button { color: var(--lamp); padding: .25rem 0 .25rem .5rem; }
   #edDone { font-size: 1.05rem; padding: .5rem 0 .5rem .5rem; }
+  #edRoom { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; margin: .9rem 0 0; }
+  #edRoom > span { font-size: .85rem; color: var(--mist); }
   #bookProblems { margin: .75rem 0 0; }
   #moments { list-style: none; margin: .5rem 0 0; padding: 0; }
   .moment { border-bottom: 1px solid var(--dusk); }
@@ -139,6 +141,11 @@
   .sheetTop { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
   #pickerDone { font-size: 1.05rem; padding: .25rem 0 .25rem .5rem; }
   #pickerSearch { margin: .75rem 0 .25rem; }
+  #pickerFilter {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0 .75rem;
+    margin: .25rem 0; font-size: .9rem; color: var(--mist);
+  }
+  #pickerFilter button { min-height: 2.75rem; color: var(--lamp); }
   #pickerList { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   #pickerList h3 {
     margin: 1rem 0 .25rem; font-weight: 400; font-size: .8rem; letter-spacing: .06em;
@@ -208,6 +215,10 @@
     <span id="edStatus" role="status"></span>
     <button id="edDone">Fertig</button>
   </div>
+  <div id="edRoom">
+    <span>Standardraum</span>
+    <button class="chip" id="edRoomChip"></button>
+  </div>
   <ul class="problems" id="bookProblems" data-cue="book" data-field="other"></ul>
   <ol id="moments"></ol>
   <button id="addMoment">+ Moment hinzufügen</button>
@@ -219,6 +230,7 @@
     <div class="sheetTop"><span id="pickerTitle"></span><button id="pickerDone">Fertig</button></div>
     <input id="pickerSearch" type="search" autocomplete="off" aria-label="Suchen">
     <p class="error" id="pickerStatus" role="status"></p>
+    <p id="pickerFilter" role="status" hidden></p>
     <div id="pickerList"></div>
     <label id="pickerDynamic"><input type="checkbox" id="dynamic"> Dynamisch abspielen</label>
   </div>
@@ -469,7 +481,7 @@ async function loadShelf() {
 // Jede Änderung wird sofort gespeichert (ADR 0006). version ist der Dateistand,
 // den der Editor kennt; wurde die Datei inzwischen anders geändert, lehnt der Server ab.
 let edit = null;     // {id, book, version, problems, open, dirty, saving, timer, conflict, deleted}
-let picker = null;   // {i, field, items, error, playing, preview}
+let picker = null;   // {i, field, items, error, playing, preview, all, justSet}
 let toastTimer = null;
 
 function h(tag, props = {}, ...children) {
@@ -495,6 +507,7 @@ async function openEditor(id, open = -1, focus = null) {
   edit = { id, book: j.book, version: j.version, problems: j.problems, open,
            dirty: false, saving: null, timer: null, conflict: false, deleted: null };
   $("edTitle").value = edit.book.title ?? "";
+  renderRoom();
   edStatus("");
   $("shelf").hidden = true; $("stage").hidden = true; $("editor").hidden = false;
   renderEditor(focus);
@@ -593,6 +606,19 @@ const FIELDS = [["scene", "Licht"], ["loop", "Teppich"], ["oneshot", "Effekt"]];
 
 function sceneText(s) {
   return [s.name, s.room, s.dynamic && "dynamisch"].filter(Boolean).join(" · ") || "ungültige Szene";
+}
+
+const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+
+// Standardraum des Buchs: Er filtert nur die Auswahl «Licht»; die Momente
+// behalten ihren eigenen Raum in scene.room. Von Hand verfälschte Werte gelten
+// als «nicht gesetzt»; das Regal meldet sie als Problem.
+const bookRoom = () => typeof edit.book.room === "string" ? edit.book.room.trim() : "";
+
+function renderRoom() {
+  const room = bookRoom();
+  $("edRoomChip").textContent = room || "Alle Räume";
+  $("edRoomChip").classList.toggle("keep", !room);
 }
 
 // Text im Feld; «unverändert» und «läuft weiter» nennen, was vom Moment davor weiterwirkt.
@@ -761,22 +787,31 @@ function hideToast() {
 }
 
 // ---------- Auswahl: Tippen wählt aus und probiert aus ----------
+// field «room» wählt den Standardraum des Buchs, die übrigen ein Feld von Moment i.
 async function openPicker(i, field) {
-  const cue = edit.book.cues[i];
-  const p = picker = { i, field, items: null, error: null, playing: null, preview: null };
-  $("pickerTitle").textContent = `${{ scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(cue, i)}`;
+  const light = field === "scene" || field === "room";
+  const p = picker = { i, field, items: null, error: null, playing: null, preview: null,
+                       all: !bookRoom(), justSet: null };
+  $("pickerTitle").textContent = field === "room" ? "Standardraum des Buchs"
+    : `${{ scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(edit.book.cues[i], i)}`;
   $("pickerSearch").value = "";
-  $("pickerSearch").placeholder = field === "scene" ? "Szene oder Raum suchen" : "Sound suchen";
+  $("pickerSearch").placeholder =
+    { scene: "Szene oder Raum suchen", room: "Raum suchen" }[field] || "Sound suchen";
   $("pickerDynamic").hidden = field !== "scene";
+  $("pickerFilter").hidden = true;
   $("pickerStatus").textContent = "";
   $("picker").hidden = false;
   renderPicker();
   try {
-    const j = await (await fetch(field === "scene" ? "/api/scenes" : "/api/sounds")).json();
+    const j = await (await fetch(light ? "/api/scenes" : "/api/sounds")).json();
     if (picker !== p) return;
-    p.items = field === "scene" ? j.scenes : j.sounds;
-    if (field === "scene" && !j.lights) p.error = "Trockenmodus: Ohne Bridge lassen sich keine Szenen auswählen.";
-    else if (field === "scene") p.error = j.error;
+    p.items = !light ? j.sounds
+      : field === "scene" ? j.scenes
+      : [...new Set(j.scenes.map(s => s.room))];     // /api/scenes liefert nach Raum sortiert
+    if (light && !j.lights) p.error = field === "room"
+      ? "Trockenmodus: Ohne Bridge sind keine Räume bekannt."
+      : "Trockenmodus: Ohne Bridge lassen sich keine Szenen auswählen.";
+    else if (light) p.error = j.error;
   } catch {
     if (picker !== p) return;
     p.items = [];
@@ -792,11 +827,13 @@ function closePicker(rerender = true) {
   stopPreview();
   picker = null;
   $("picker").hidden = true;
-  if (rerender && edit) renderEditor(`.chip[data-field=${field}]`);
+  if (!rerender || !edit) return;
+  renderEditor(field === "room" ? null : `.chip[data-field=${field}]`);
+  if (field === "room") $("edRoomChip").focus();
 }
 
 function renderPicker() {
-  const { i, field, items } = picker, cue = edit.book.cues[i];
+  const { i, field, items } = picker, cue = field === "room" ? null : edit.book.cues[i];
   const q = $("pickerSearch").value.trim().toLowerCase();
   const rows = [];
   const option = (text, note, selected, onclick, missing = false) => {
@@ -808,16 +845,35 @@ function renderPicker() {
   const heading = text => rows.push(h("h3", { textContent: text }));
   const hint = text => rows.push(h("p", { className: "hint", textContent: text }));
 
-  if (field === "scene") {
+  if (field === "room") {
+    const cur = bookRoom();
+    option("Alle Räume", "keine Vorauswahl", !cur, () => pickRoom(""));
+    if (cur && items && !items.some(r => same(r, cur)))
+      option(cur, "nicht auf der Bridge", true, () => {}, true);
+    if (!items) hint("Lade Räume …");
+    for (const r of (items || []).filter(r => !q || r.toLowerCase().includes(q)))
+      option(r, same(r, cur) ? "✓ gewählt" : "", same(r, cur), () => pickRoom(r));
+  } else if (field === "scene") {
     const cur = cue.scene, before = effective(edit.book.cues, i - 1).scene;
-    const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
     const isCur = s => !!cur && same(s.name, cur.name) && (cur.room == null || same(s.room, cur.room));
+    const matches = s => !q || `${s.name} ${s.room}`.toLowerCase().includes(q);
+    const room = bookRoom();
+    const inRoom = room ? (items || []).filter(s => same(s.room, room)) : [];
+    // Der Filter greift nur, solange er etwas zeigt: Ein umbenannter Raum darf
+    // die Auswahl nicht leeren.
+    const filtered = !!room && !picker.all && inRoom.length > 0;
+    renderFilterLine(items?.length ? room : "", inRoom.length, filtered);
+    $("pickerSearch").placeholder = filtered ? "Szene suchen" : "Szene oder Raum suchen";
+    const shown = (filtered ? inRoom : items || []).filter(matches);
     option("Kein Lichtwechsel", before ? `bleibt ${before.name}` : "", !cur, () => pickScene(null));
     if (cur && items && !items.some(isCur)) option(sceneText(cur), "nicht auf der Bridge", true, () => {}, true);
     if (!items) hint("Lade Szenen …");
-    let room = null;
-    for (const s of (items || []).filter(s => !q || `${s.name} ${s.room}`.toLowerCase().includes(q))) {
-      if (s.room !== room) heading(room = s.room);
+    else if (filtered && !shown.length && items.some(matches))
+      hint(`Keine Treffer in «${room}», aber ${plural(items.filter(matches).length,
+        "in einem anderen Raum", "in anderen Räumen")}.`);
+    let head = null;
+    for (const s of shown) {
+      if (!filtered && s.room !== head) heading(head = s.room);
       option(s.name, isCur(s) ? "✓ gewählt" : "", isCur(s), () => pickScene(s));
     }
     $("dynamic").checked = !!cur?.dynamic;
@@ -842,14 +898,47 @@ function renderPicker() {
   $("pickerList").replaceChildren(...rows);
 }
 
+// Zeile unter der Suche: Sie nennt den gezeigten Ausschnitt und schaltet ihn um.
+function renderFilterLine(room, inRoom, filtered) {
+  const line = $("pickerFilter");
+  line.hidden = !room;                 // erst, wenn es Szenen zu filtern gibt
+  if (line.hidden) return line.replaceChildren();
+  const text = !inRoom ? `Im Raum «${room}» gibt es keine Szenen.`
+    : picker.justSet === room ? `Standardraum «${room}» gesetzt.`
+    : filtered ? `Nur «${room}»` : "Alle Räume";
+  line.replaceChildren(text);
+  if (!inRoom) return;                 // ohne Szenen im Raum gibt es nichts umzuschalten
+  line.append(h("button", {
+    textContent: filtered ? "Alle Räume zeigen" : `Nur «${room}» zeigen`,
+    onclick: () => { picker.all = filtered; picker.justSet = null; renderPicker(); },
+  }));
+}
+
 function pickScene(s) {
   const cue = edit.book.cues[picker.i];
   if (s) {
     cue.scene = { name: s.name, room: s.room };
     if ($("dynamic").checked) cue.scene.dynamic = true;
+    // Die erste Szene des Buchs setzt den Standardraum: Von hier an startet die
+    // Auswahl dort. Die offene Liste bleibt, wie sie ist, und sagt es nur.
+    if (!bookRoom()) {
+      edit.book.room = s.room;
+      picker.all = true;
+      picker.justSet = s.room;
+      renderRoom();
+    }
     previewScene(cue.scene);
   } else delete cue.scene;
   changed();
+  renderPicker();
+}
+
+// "" = kein Standardraum; das Feld verschwindet dann aus der Buchdatei.
+function pickRoom(room) {
+  if (room) edit.book.room = room;
+  else delete edit.book.room;
+  changed();
+  renderRoom();
   renderPicker();
 }
 
@@ -905,6 +994,7 @@ $("dynamic").addEventListener("change", () => {
   previewScene(cue.scene);
   renderPicker();
 });
+$("edRoomChip").addEventListener("click", () => openPicker(null, "room"));
 $("pickerSearch").addEventListener("input", renderPicker);
 $("pickerDone").addEventListener("click", () => closePicker());
 $("picker").addEventListener("click", e => { if (e.target === $("picker")) closePicker(); });

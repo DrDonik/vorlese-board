@@ -30,6 +30,9 @@ Im Editor:
 
 - Enter in einer Bezeichnung legt den nächsten Moment an: erst das Gerüst tippen, dann ausgestalten.
 - Licht wählen schaltet die Szene sofort, Sounds werden beim Auswählen angespielt.
+- Der «Standardraum» unter dem Titel bestimmt, welcher Raum in der Licht-Auswahl zuerst
+  erscheint. Die erste gewählte Szene setzt ihn; in der Auswahl lässt sich mit einem Tipp
+  auf alle Räume umschalten.
 - «Ab hier probelesen» springt in den Lesemodus, mit Licht und Klang wie vor diesem Moment.
 - Jede Änderung ist sofort gespeichert. Neue Sounds in `sounds/` legen, sie erscheinen gleich in der Auswahl.
 
@@ -41,6 +44,7 @@ Der Editor schreibt einen Moment pro Zeile und überschreibt keine Datei, die in
 von Hand geändert wurde.
 
     { "title": "Mein Buch",
+      "room": "Wohnzimmer",
       "cues": [
         { "label": "Im Wald",    "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
         { "label": "Es raschelt", "oneshot": "rascheln.mp3" },
@@ -48,6 +52,8 @@ von Hand geändert wurde.
         { "label": "Gute Nacht", "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
           "triggers": ["gute Nacht"] } ] }
 
+- `room`: Standardraum des Buchs. Er filtert nur die Auswahl im Editor; welche Szene ein
+  Moment schaltet, steht immer in dessen `scene.room`.
 - `scene`: Name exakt wie in der Hue-App (Gross-/Kleinschreibung egal); `room` nötig, wenn der
   Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
 - `loop`: Dateiname = Klangteppich überblenden, `null` = ausblenden, Feld weglassen = weiterlaufen lassen.
