@@ -6,6 +6,8 @@ Date: 2026-09-19
 
 Accepted
 
+Amended by 0005
+
 ## Context
 
 While reading aloud, attention belongs to the book and the children. Operating the app must not require looking for the right control, and it happens in a dimmed room.

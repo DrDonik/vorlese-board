@@ -110,13 +110,13 @@ class WithBridge(unittest.TestCase):
     def test_ambiguous_scene_rejected(self):
         s, b = call(self.app + "/api/scene", "POST", {"name": "Nachtlicht"})
         self.assertEqual(s, 404)
-        self.assertIn("2 Treffer", json.loads(b)["error"])
+        self.assertIn("mehreren Räumen", json.loads(b)["error"])
         self.assertEqual(MockBridge.recalls, [])
 
     def test_missing_scene(self):
         s, b = call(self.app + "/api/scene", "POST", {"name": "Gibtsnicht"})
         self.assertEqual(s, 404)
-        self.assertIn("0 Treffer", json.loads(b)["error"])
+        self.assertIn("nicht gefunden", json.loads(b)["error"])
 
     def test_bad_request(self):
         s, _ = call(self.app + "/api/scene", "POST", {"room": "Wohnzimmer"})

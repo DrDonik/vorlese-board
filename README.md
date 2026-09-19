@@ -38,6 +38,10 @@ Bluetooth-Seitenwender (Pedal, Fernbedienung) funktionieren, sofern sie Pfeiltas
 - Sounds liegen in `sounds/` (mp3, m4a, wav). Die zwei `demo-*.wav` sind generierte Testtöne.
 - Die Szenennamen im Beispielbuch sind Platzhalter und an die eigenen Szenen anzupassen.
 
+Das Regal prüft jedes Buch gegen die Szenen der Bridge und den Ordner `sounds/` und listet
+unter dem Titel auf, was nicht stimmt (Tippfehler, fehlende Sounds, unbekannte Felder,
+JSON-Fehler mit Zeile). Nach dem Ändern einer Datei genügt es, zum Browser zurückzuwechseln.
+
 ## Tests
 
     python3 -m unittest discover tests

@@ -42,11 +42,19 @@
   /* Buchauswahl */
   #shelf { max-width: 36rem; margin: 0 auto; padding: 3rem 1.5rem; }
   #shelf h1 { font-weight: 400; font-size: 1.1rem; color: var(--mist); margin: 0 0 1.5rem; }
+  .entry { border-bottom: 1px solid var(--dusk); }
   .book {
     display: block; width: 100%; text-align: left; padding: 1.1rem 0;
-    border-bottom: 1px solid var(--dusk); font-size: 1.6rem; line-height: 1.25;
+    font-size: 1.6rem; line-height: 1.25;
   }
+  .book:disabled { color: var(--mist); cursor: default; }
   .book small { display: block; font-size: .9rem; color: var(--mist); margin-top: .25rem; }
+  .problems {
+    list-style: none; margin: -.5rem 0 1.1rem; padding: 0;
+    font-size: .9rem; line-height: 1.4; color: var(--warn);
+    -webkit-user-select: text; user-select: text;   /* zum Kopieren beim Korrigieren */
+  }
+  .problems li + li { margin-top: .35rem; }
   .hint { color: var(--mist); font-size: .95rem; line-height: 1.5; margin-top: 2rem; }
 
   /* Lesemodus */
@@ -229,7 +237,7 @@ async function go(to, forward) {
 // ---------- Screens ----------
 async function openBook(id) {
   audio.init();                       // erster Tipp entsperrt Audio auf iOS
-  const r = await fetch("/api/books/" + id);
+  const r = await fetch("/api/books/" + encodeURIComponent(id));
   const j = await r.json();
   if (!r.ok) { $("shelfHint").textContent = j.error; return; }
   book = j; idx = -1;
@@ -250,18 +258,48 @@ function closeBook() {
   audio.fadeOutLoop();
   book = null;
   $("stage").hidden = true; $("shelf").hidden = false;
+  loadShelf();                        // Buchdateien können sich inzwischen geändert haben
 }
 
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// Ein Regaleintrag: Titel, Umfang und, falls vorhanden, die konkreten Probleme.
+// Bücher, die sich nicht öffnen lassen, sind ausgegraut.
+function shelfEntry(b) {
+  const entry = document.createElement("div"), btn = document.createElement("button");
+  const small = document.createElement("small");
+  entry.className = "entry";
+  btn.className = "book"; btn.dataset.id = b.id; btn.disabled = !!b.error;
+  const problems = b.error ? [b.error] : b.problems;
+  small.textContent = b.error ? "Lässt sich nicht öffnen"
+    : plural(b.cues, "Moment", "Momente")
+      + (problems.length ? " · " + plural(problems.length, "Problem", "Probleme") : "");
+  btn.append(b.title, small);
+  entry.append(btn);
+  if (problems.length) {
+    const list = document.createElement("ul");
+    list.className = "problems";
+    list.append(...problems.map(p => Object.assign(document.createElement("li"), { textContent: p })));
+    entry.append(list);
+  }
+  return entry;
+}
+
+let shelfRequest = 0;
 async function loadShelf() {
+  const request = ++shelfRequest;
   try {
     const j = await (await fetch("/api/books")).json();
-    $("books").innerHTML = j.books.map(b =>
-      `<button class="book" data-id="${b.id}">${b.title}<small>${
-        b.error ? "Datei fehlerhaft" : b.cues + " Momente"}</small></button>`).join("");
-    $("shelfHint").textContent = j.books.length ? (j.lights ? "" :
-      "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt.")
-      : "Noch keine Bücher. Lege eine JSON-Datei im Ordner books an.";
-  } catch { $("shelfHint").textContent = "Server nicht erreichbar."; }
+    if (request !== shelfRequest) return;   // eine neuere Anfrage läuft schon
+    $("books").replaceChildren(...j.books.map(shelfEntry));
+    $("shelfHint").textContent =
+      !j.books.length ? "Noch keine Bücher. Lege eine JSON-Datei im Ordner books an."
+      : !j.lights ? "Licht im Trockenmodus: Szenen werden nur im Terminal angezeigt und nicht geprüft."
+      : j.bridge_error ? "Szenen nicht geprüft. " + j.bridge_error
+      : "";
+  } catch {
+    if (request === shelfRequest) $("shelfHint").textContent = "Server nicht erreichbar.";
+  }
 }
 
 $("books").addEventListener("click", e => {
@@ -276,6 +314,10 @@ document.addEventListener("keydown", e => {
   if (!book) return;
   if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(idx + 1, true); }
   if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); go(idx - 1, false); }
+});
+// Zurück im Regal, etwa nach dem Bearbeiten einer Buchdatei am Mac: neu prüfen
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !book) loadShelf();
 });
 loadShelf();
 </script>
