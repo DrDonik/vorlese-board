@@ -104,8 +104,13 @@ const $ = id => document.getElementById(id);
 const audio = {
   ctx: null, buffers: {}, loop: null,   // loop = {name, src, gain}
   init() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (this.ctx.state === "suspended") this.ctx.resume();
+    if (!this.ctx) {
+      // iOS: als Medienwiedergabe spielen, sonst schluckt der Stumm-Modus jeden Ton.
+      if (navigator.audioSession) navigator.audioSession.type = "playback";
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // iOS meldet nach Sperre, Anruf oder App-Wechsel "interrupted" statt "suspended".
+    if (this.ctx.state !== "running") this.ctx.resume().catch(() => {});
   },
   async load(names) {
     const missing = [];
@@ -227,6 +232,9 @@ async function openBook(id) {
   $("shelf").hidden = true; $("stage").hidden = false;
   render();
   const missing = await audio.load(sounds);
+  if (book !== j) return;             // inzwischen geschlossen oder anderes Buch
+  // Wurde vor Ende des Ladens weitergetippt, fehlt der Klangteppich noch.
+  if (idx >= 0) audio.setLoop(effective(idx).loop);
   if (missing.length) status("Fehlende Sounds: " + missing.join(", "));
   try { await navigator.wakeLock?.request("screen"); } catch {}
   $("next").focus();
