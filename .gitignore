@@ -1,6 +1,11 @@
 # Bridge-Zugangsdaten (von `server.py --pair` erzeugt)
 config.json
 
+# Buecher und eigene Sounds bleiben lokal; nur die Demotoene liegen im Repo
+books/*
+sounds/*
+!sounds/demo-*
+
 .DS_Store
 __pycache__/
 .claude/settings.local.json

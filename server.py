@@ -597,6 +597,8 @@ def main():
         for s in sorted(bridge.scenes(), key=lambda s: (s["room"], s["name"])):
             print(f"{s['room']:<20} {s['name']}")
         return
+    BOOKS_DIR.mkdir(exist_ok=True)
+    SOUNDS_DIR.mkdir(exist_ok=True)
     Handler.bridge = bridge
     Handler.pin = config.get("pin")
     mode = "mit Bridge" if bridge else "Trockenmodus (keine config.json)"
