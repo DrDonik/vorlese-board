@@ -41,7 +41,8 @@ Nach einem Neustart des Servers fragt die App einmal neu nach der PIN; zum Vorle
 
 Die Bücher liegen als JSON in `books/<name>.json` und lassen sich auch von Hand bearbeiten.
 Der Editor schreibt einen Moment pro Zeile und überschreibt keine Datei, die inzwischen
-von Hand geändert wurde.
+von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liegen nur die
+`demo-*.wav`; ein frisch geklontes Regal ist leer und füllt sich über «Neues Buch».
 
     { "title": "Mein Buch",
       "room": "Wohnzimmer",
@@ -62,7 +63,7 @@ von Hand geändert wurde.
 - `oneshot`: Einzeleffekt, einmal abgespielt (nur vorwärts, nicht bei «Zurück»).
 - `triggers`: Stichwörter für die spätere Spracherkennung (Stufe 2), derzeit ungenutzt.
 - Sounds liegen in `sounds/` (mp3, m4a, wav, aac). Die zwei `demo-*.wav` sind generierte Testtöne.
-- Die Szenennamen im Beispielbuch sind Platzhalter und an die eigenen Szenen anzupassen.
+- Die Szenennamen oben sind Platzhalter; `python3 server.py --scenes` zeigt die eigenen.
 
 Das Regal prüft jedes Buch gegen die Szenen der Bridge und den Ordner `sounds/` und listet
 unter dem Titel auf, was nicht stimmt (Tippfehler, fehlende Sounds, unbekannte Felder,
