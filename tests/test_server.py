@@ -4,6 +4,7 @@ Start: python3 -m unittest discover tests
 """
 import json
 import sys
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -24,6 +25,20 @@ SCENES = [
     {"id": "s3", "metadata": {"name": "Entspannen"}, "group": {"rid": "r1"}},
     {"id": "s4", "metadata": {"name": "Lesen"}, "group": {"rid": "z1"}},
 ]
+
+
+# Das Repo enthaelt keine Buecher, deshalb legen die Tests sich eins an.
+FIXTURE_BOOK = {
+    "title": "Beispielbuch",
+    "room": "Wohnzimmer",
+    "cues": [
+        {"label": "Ein ruhiger Abend", "scene": {"name": "Entspannen", "room": "Wohnzimmer"},
+         "loop": "demo-rauschen.wav", "triggers": []},
+        {"label": "Die Glocke schlägt", "oneshot": "demo-glocke.wav", "triggers": ["Glocke"]},
+        {"label": "Es wird Nacht", "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"},
+         "loop": None, "triggers": ["Nacht"]},
+    ],
+}
 
 
 class MockBridge(BaseHTTPRequestHandler):
@@ -81,6 +96,10 @@ def call(url, method="GET", body=None):
 class WithBridge(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.books = tempfile.TemporaryDirectory()
+        cls.books_dir = server.BOOKS_DIR
+        server.BOOKS_DIR = Path(cls.books.name)
+        server.write_book(server.BOOKS_DIR / "beispiel.json", server.format_book(FIXTURE_BOOK))
         cls.bridge_srv, bridge_url = start(MockBridge)
         server.Handler.bridge = server.Bridge(bridge_url, KEY)
         cls.app_srv, cls.app = start(server.Handler)
@@ -89,6 +108,8 @@ class WithBridge(unittest.TestCase):
     def tearDownClass(cls):
         cls.app_srv.shutdown()
         cls.bridge_srv.shutdown()
+        server.BOOKS_DIR = cls.books_dir
+        cls.books.cleanup()
 
     def setUp(self):
         MockBridge.recalls.clear()
@@ -141,13 +162,6 @@ class WithBridge(unittest.TestCase):
             s, body = call(self.app + p)
             self.assertNotEqual(s, 200, p)
             self.assertNotIn(b"import", body, p)
-
-    def test_example_book_scenes_have_names(self):
-        book = json.loads((server.ROOT / "books" / "beispiel.json").read_text(encoding="utf-8"))
-        for cue in book["cues"]:
-            self.assertIn("label", cue)
-            if "scene" in cue:
-                self.assertIn("name", cue["scene"])
 
 
 class DryRun(unittest.TestCase):
