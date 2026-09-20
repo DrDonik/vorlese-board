@@ -36,11 +36,15 @@ BOOKS_DIR = ROOT / "books"
 SOUNDS_DIR = ROOT / "sounds"
 PORT = 8765
 
-BOOK_FIELDS = {"title", "room", "cues"}
+BOOK_FIELDS = {"title", "room", "sync", "cues"}
 # Feste Reihenfolge beim Schreiben; Unbekanntes steht vor den Momenten und faellt so auf.
-BOOK_KEY_ORDER = {"title": 0, "room": 1, "cues": 3}
-CUE_FIELDS = {"label", "scene", "loop", "oneshot", "triggers"}
+BOOK_KEY_ORDER = {"title": 0, "room": 1, "sync": 2, "cues": 4}
+# In einem Moment steht erst, wann er kommt, dann was er schaltet; Unbekanntes am Ende.
+CUE_KEY_ORDER = {"label": 0, "page": 1, "at": 1, "scene": 2, "loop": 3, "oneshot": 4, "triggers": 5}
+CUE_FIELDS = {"label", "scene", "loop", "oneshot", "page", "at", "triggers"}
 SCENE_FIELDS = {"name", "room", "dynamic"}
+SYNC_FIELDS = {"hash"}
+MAX_HASH = 64  # so lang ist die Buchkennung in der Vorlese-App hoechstens
 SOUND_TYPES = {".mp3", ".m4a", ".wav", ".aac"}
 MAX_BODY = 1_000_000
 BOOK_LOCK = threading.Lock()  # Vergleichen und Schreiben einer Buchdatei am Stueck
@@ -204,10 +208,13 @@ def format_book(data):
     """Buch als JSON mit einem Moment pro Zeile: kurze Diffs, gut von Hand zu bearbeiten."""
     def compact(value):
         return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
+    def ordered(cue):
+        return {k: cue[k] for k in sorted(cue, key=lambda k: CUE_KEY_ORDER.get(k, 6))}
+
     fields = []
-    for key, value in sorted(data.items(), key=lambda kv: BOOK_KEY_ORDER.get(kv[0], 2)):
+    for key, value in sorted(data.items(), key=lambda kv: BOOK_KEY_ORDER.get(kv[0], 3)):
         if key == "cues" and value:
-            cues = ",\n".join(f"    {compact(c)}" for c in value)
+            cues = ",\n".join(f"    {compact(ordered(c))}" for c in value)
             fields.append(f"  {compact(key)}: [\n{cues}\n  ]")
         else:
             fields.append(f"  {compact(key)}: {compact(value)}")
@@ -249,9 +256,16 @@ def book_problems(data, scenes=None):
     oder None), message (fuer die Anzeige am Feld) und text (ganzer Satz fuers Regal).
     """
     problems = []
+    cues = data["cues"]
 
     def book_problem(msg):
         problems.append({"cue": None, "field": None, "message": msg, "text": msg})
+
+    def cue_problem(i, msg, field):
+        label = cues[i].get("label")
+        where = (f"Moment {i + 1} «{label}»" if isinstance(label, str) and label.strip()
+                 else f"Moment {i + 1}")
+        problems.append({"cue": i, "field": field, "message": msg, "text": f"{where}: {msg}"})
 
     for key in sorted(data.keys() - BOOK_FIELDS):
         book_problem(f"unbekanntes Feld «{key}»")
@@ -259,14 +273,15 @@ def book_problems(data, scenes=None):
         book_problem("«title» muss Text sein")
     if "room" in data and not isinstance(data["room"], str):
         book_problem("«room» muss Text sein")
-    for i, cue in enumerate(data["cues"]):
+    if "sync" in data:
+        add_sync_problems(data["sync"], book_problem)
+    add_page_problems(cues, cue_problem)
+    for i, cue in enumerate(cues):
         label = cue.get("label")
         has_label = isinstance(label, str) and label.strip()
-        where = f"Moment {i + 1} «{label}»" if has_label else f"Moment {i + 1}"
 
         def add(msg, field):
-            problems.append({"cue": i, "field": field, "message": msg,
-                             "text": f"{where}: {msg}"})
+            cue_problem(i, msg, field)
 
         if not has_label:
             add("Bezeichnung «label» fehlt", "label")
@@ -282,6 +297,52 @@ def book_problems(data, scenes=None):
         if not isinstance(triggers, list) or not all(isinstance(t, str) for t in triggers):
             add("«triggers» muss eine Liste von Texten sein", "triggers")
     return problems
+
+
+def add_sync_problems(sync, add):
+    """Verknuepfung mit einem Buch der Vorlese-App (ADR 0008)."""
+    if not isinstance(sync, dict):
+        return add("«sync» muss ein Objekt mit «hash» sein")
+    for key in sorted(sync.keys() - SYNC_FIELDS):
+        add(f"unbekanntes Feld «sync.{key}»")
+    value = sync.get("hash")
+    if not isinstance(value, str) or not value.strip() or len(value) > MAX_HASH:
+        add("«sync.hash» muss die Kennung des Buchs in der Vorlese-App sein")
+
+
+def add_page_problems(cues, add):
+    """Seitenzahlen (ADR 0008) und Positionen innerhalb einer Seite (ADR 0009).
+
+    «page» steigt ueber das Buch hinweg, «at» steigt innerhalb seiner Seite und
+    gehoert zu dem Moment, der keine eigene Seite hat.
+    """
+    has_pages = any("page" in cue for cue in cues)
+    page, position = None, None
+    for i, cue in enumerate(cues):
+        if "page" in cue:
+            value = cue["page"]
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                add(i, "«page» muss eine ganze Zahl ab 0 sein", "when")
+            elif page is not None and value <= page:
+                add(i, f"«page» muss aufsteigen, Seite {value} steht hinter Seite {page}", "when")
+            else:
+                page, position = value, None
+            if "at" in cue:
+                add(i, "«at» gehört zu einem Moment ohne «page»", "when")
+            continue
+        if "at" not in cue:
+            continue
+        value = cue["at"]
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0 < value < 1:
+            add(i, "«at» muss eine Zahl zwischen 0 und 1 sein", "when")
+        elif not has_pages:
+            add(i, "«at» wirkt nur in einem Buch mit Seitenzahlen", "when")
+        elif page is None:
+            add(i, "«at» braucht davor einen Moment mit «page»", "when")
+        elif position is not None and value <= position:
+            add(i, f"«at» muss innerhalb der Seite aufsteigen, {value} steht hinter {position}", "when")
+        else:
+            position = value
 
 
 def add_scene_problems(scene, scenes, add):
@@ -486,9 +547,15 @@ class Handler(SimpleHTTPRequestHandler):
                 books.append({"id": f.stem, "title": f.stem, "error": error})
                 continue
             title = data.get("title")
+            sync = data.get("sync")
+            book_hash = sync.get("hash") if isinstance(sync, dict) else None
             books.append({"id": f.stem,
                           "title": title if isinstance(title, str) and title.strip() else f.stem,
                           "cues": len(data["cues"]),
+                          # Kennung des Buchs in der Vorlese-App: Damit findet ein
+                          # Lese-Code das Buch im Regal wieder (ADR 0008).
+                          "hash": book_hash if isinstance(book_hash, str) else None,
+                          "pages": any("page" in c for c in data["cues"]),
                           "problems": [p["text"] for p in book_problems(data, scenes)]})
         return self._json(200, {"books": books, "lights": self.bridge is not None,
                                 "bridge_error": bridge_error, "edit": self._edit_access()})

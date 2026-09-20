@@ -162,5 +162,54 @@ class DryRun(unittest.TestCase):
             srv.shutdown()
 
 
+class Pages(unittest.TestCase):
+    """Seitenzahlen (ADR 0008) und Positionen innerhalb einer Seite (ADR 0009)."""
+
+    def problems(self, *cues, **book):
+        return [p["text"] for p in server.book_problems({"cues": list(cues), **book})]
+
+    def test_pages_and_positions_accepted(self):
+        self.assertEqual(self.problems(
+            {"label": "Wald", "page": 3},
+            {"label": "Ast", "at": 0.6},
+            {"label": "Lichtung", "page": 7}), [])
+
+    def test_pages_must_ascend(self):
+        self.assertIn("aufsteigen", self.problems(
+            {"label": "a", "page": 7}, {"label": "b", "page": 3})[0])
+
+    def test_positions_must_ascend_within_their_page(self):
+        self.assertIn("innerhalb der Seite", self.problems(
+            {"label": "a", "page": 1}, {"label": "b", "at": 0.6}, {"label": "c", "at": 0.6})[0])
+
+    def test_position_needs_a_page_before_it(self):
+        self.assertIn("braucht davor", self.problems(
+            {"label": "a", "at": 0.5}, {"label": "b", "page": 2})[0])
+
+    def test_position_only_in_a_book_with_pages(self):
+        self.assertIn("nur in einem Buch mit Seitenzahlen",
+                      self.problems({"label": "a", "at": 0.5})[0])
+
+    def test_position_and_page_exclude_each_other(self):
+        self.assertIn("ohne «page»", self.problems({"label": "a", "page": 1, "at": 0.5})[0])
+
+    def test_field_types(self):
+        self.assertIn("ganze Zahl", self.problems({"label": "a", "page": 1.5})[0])
+        self.assertIn("zwischen 0 und 1",
+                      self.problems({"label": "a", "page": 1}, {"label": "b", "at": 1})[0])
+
+    def test_sync_hash_is_text(self):
+        self.assertEqual(self.problems({"label": "a"}, sync={"hash": "abc"}), [])
+        self.assertIn("Vorlese-App", self.problems({"label": "a"}, sync={"hash": 5})[0])
+        self.assertIn("sync.raum", self.problems({"label": "a"},
+                                                 sync={"hash": "abc", "raum": "x"})[0])
+
+    def test_moment_says_first_when_it_comes(self):
+        text = server.format_book({"cues": [{"oneshot": "x.wav", "at": 0.5, "label": "Ast"}],
+                                   "sync": {"hash": "abc"}, "title": "T"})
+        self.assertIn('{"label": "Ast", "at": 0.5, "oneshot": "x.wav"}', text)
+        self.assertLess(text.index('"sync"'), text.index('"cues"'))
+
+
 if __name__ == "__main__":
     unittest.main()

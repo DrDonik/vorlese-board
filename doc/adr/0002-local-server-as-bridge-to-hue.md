@@ -6,7 +6,7 @@ Date: 2026-09-19
 
 Accepted
 
-Amended by 0006
+Amended by 0006, 0008
 
 ## Context
 
