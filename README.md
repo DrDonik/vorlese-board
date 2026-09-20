@@ -45,15 +45,17 @@ von Hand geändert wurde.
 
     { "title": "Mein Buch",
       "room": "Wohnzimmer",
+      "sync": {"hash": "5f2c…"},
       "cues": [
-        { "label": "Im Wald",    "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
-        { "label": "Es raschelt", "oneshot": "rascheln.mp3" },
+        { "label": "Im Wald",    "page": 7, "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
+        { "label": "Es raschelt", "at": 0.6, "oneshot": "rascheln.mp3" },
         { "label": "Zauber",     "scene": {"name": "Polarlicht", "room": "Wohnzimmer", "dynamic": true} },
-        { "label": "Gute Nacht", "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
+        { "label": "Gute Nacht", "page": 9, "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
           "triggers": ["gute Nacht"] } ] }
 
 - `room`: Standardraum des Buchs. Er filtert nur die Auswahl im Editor; welche Szene ein
   Moment schaltet, steht immer in dessen `scene.room`.
+- `page`, `at`, `sync`: nur für das Mitlesen mit der Vorlese-App, siehe unten.
 - `scene`: Name exakt wie in der Hue-App (Gross-/Kleinschreibung egal); `room` nötig, wenn der
   Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
 - `loop`: Dateiname = Klangteppich überblenden, `null` = ausblenden, Feld weglassen = weiterlaufen lassen.
@@ -65,6 +67,30 @@ von Hand geändert wurde.
 Das Regal prüft jedes Buch gegen die Szenen der Bridge und den Ordner `sounds/` und listet
 unter dem Titel auf, was nicht stimmt (Tippfehler, fehlende Sounds, unbekannte Felder,
 JSON-Fehler mit Zeile). Nach dem Ändern einer Datei genügt es, zum Browser zurückzuwechseln.
+
+## Mit der Super Vorlese-App mitlesen
+
+Wird dasselbe Buch in der [Super Vorlese-App](https://drdonik.github.io/super-vorlese-app)
+gelesen, folgt das Board dem Umblättern: beim Vorlesen über die Distanz schaltet es das
+Licht im Kinderzimmer, ohne dass dort jemand tippt (ADR 0008, 0009).
+
+1. Im Regal «Mit der Vorlese-App verbinden» wählen und den sechsstelligen Lese-Code eingeben.
+   Beim ersten Mal fragt das Board, welches Buch im Regal gemeint ist, und merkt sich das
+   in `sync.hash`. Danach findet derselbe Code das Buch von selbst.
+2. Im Editor bekommt jeder Moment die Frage «Wann». Dazu in der Vorlese-App auf die Seite
+   blättern und im Board «Seite N» antippen — Seitenzahlen muss man sich nicht merken.
+
+- `page`: Der Moment gehört zum Anfang dieser Seite. Umblättern stellt Licht und Klangteppich
+  so her, wie sie dort wären; übersprungene Einzeleffekte bleiben stumm. Die Zahlen steigen
+  über das Buch hinweg an.
+- `at`: Position zwischen 0 und 1 auf der zuletzt genannten Seite. Der Moment kommt beim
+  Tippen oder zu seiner geschätzten Zeit, was zuerst eintritt; ein Umblättern überschreibt
+  beides. Die Zeit schätzt das Board aus dem Lesetempo des Abends, ein Balken zeigt sie an.
+- `sync.hash`: Kennung des Buchs in der Vorlese-App. Setzt das Board beim Verbinden selbst.
+
+Das Board liest nur mit und schreibt nie in den Raum. Der Lese-Code bleibt pro Buch auf
+dem Gerät gemerkt; ein Raum verfällt 45 Tage nach dem letzten Umblättern, dann braucht es
+einen neuen Code. Dieses Gerät braucht dafür Internet; ohne Verbindung bleibt alles wie zuvor.
 
 ## Tests
 

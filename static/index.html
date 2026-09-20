@@ -73,6 +73,7 @@
   .entry .edit { font-size: .95rem; color: var(--mist); padding: .75rem 0 .75rem 1rem; }
   .entry .problems { grid-column: 1 / -1; margin: -.5rem 0 1.1rem; }
   #addBook { font-size: 1.2rem; color: var(--mist); padding: 1.1rem 0; }
+  #connectApp { display: block; font-size: 1.05rem; color: var(--mist); padding: .25rem 0 1.1rem; }
   #newBookForm { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: 1rem 0 0; }
   #newTitle { flex: 1; min-width: 12rem; font-size: 1.2rem; }
   #cancelBook { color: var(--mist); }
@@ -165,12 +166,32 @@
     -webkit-text-security: disc;          /* verdeckt, ohne dass Safari ein Passwort speichern will */
   }
   #pickerDynamic { display: flex; align-items: center; gap: .6rem; padding-top: .75rem; font-size: .95rem; color: var(--mist); }
+  /* Zeilen der Auswahl «Wann», die keine Liste sind: Seitenzahl und Position */
+  .pickRow { display: flex; align-items: center; gap: .75rem; padding: .7rem .6rem; border-bottom: 1px solid var(--dusk); }
+  .pickRow > span:first-child { min-width: 5rem; font-size: .9rem; color: var(--mist); }
+  .pickRow input[type=number] { width: 6rem; }
+  .pickRow input[type=range] { flex: 1; min-width: 8rem; height: 2.75rem; accent-color: var(--lamp); }
+  .pickRow .pct { min-width: 3rem; text-align: right; font-size: .95rem; }
+
+  /* Verbindung zur Vorlese-App */
+  #roomDialog .sheet { max-width: 26rem; }
+  #roomHint { margin: .75rem 0 0; }
+  #roomCode {
+    width: 100%; margin: 1rem 0 .25rem; font-size: 1.8rem; letter-spacing: .35em;
+    text-align: center; text-transform: uppercase;
+  }
+  #roomList { max-height: 50vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #roomActions { display: flex; justify-content: flex-end; gap: 1.5rem; padding-top: .75rem; }
+  #roomActions button { min-height: 2.75rem; font-size: 1.05rem; }
+  #roomDisconnect { color: var(--warn); }
 
   /* Lesemodus */
   #stage { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
   #top { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; color: var(--mist); }
   #top .title { flex: 1; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #top button { font-size: .95rem; color: var(--mist); padding: .5rem; }
+  #top #sync.live { color: var(--lamp); }
+  #top #sync.warn { color: var(--warn); }
   #next {
     display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
     padding: 0 8vw; text-align: left; width: 100%;
@@ -179,6 +200,9 @@
   #next .label { font-size: clamp(2.2rem, 7vw, 4.2rem); line-height: 1.1; font-weight: 600; }
   #next:active .label { color: var(--lamp-dim); }
   #next.done .label { color: var(--mist); font-weight: 400; }
+  /* Zündschnur: Sie zeigt, dass dieser Moment auch ohne Tippen kommt (ADR 0009). */
+  #fuseTrack { width: min(22rem, 60%); height: 3px; margin-top: 1.75rem; background: var(--dusk); border-radius: 2px; }
+  #fuse { display: block; width: 0; height: 100%; background: var(--lamp-dim); border-radius: 2px; }
   #bottom { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 1.25rem 1.5rem; }
   #back { font-size: 1.05rem; color: var(--mist); padding: .75rem 1rem .75rem 0; }
   #dots { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -199,6 +223,7 @@
   <h1>Welches Buch lesen wir?</h1>
   <div id="books"></div>
   <button id="addBook">+ Neues Buch</button>
+  <button id="connectApp">Mit der Vorlese-App verbinden</button>
   <form id="newBookForm" hidden>
     <input id="newTitle" placeholder="Titel des Buchs" aria-label="Titel des neuen Buchs"
            autocomplete="off" enterkeyhint="done">
@@ -244,15 +269,32 @@
   </form>
 </div>
 
+<div id="roomDialog" class="overlay" hidden>
+  <form class="sheet" id="roomForm" role="dialog" aria-modal="true" aria-labelledby="roomTitle">
+    <div class="sheetTop"><span id="roomTitle"></span><button type="button" id="roomCancel">Abbrechen</button></div>
+    <p class="hint" id="roomHint"></p>
+    <input id="roomCode" maxlength="6" autocomplete="off" autocapitalize="characters"
+           spellcheck="false" aria-label="Lese-Code, 6 Zeichen">
+    <p class="error" id="roomError" role="status"></p>
+    <div id="roomList"></div>
+    <div id="roomActions">
+      <button type="button" id="roomDisconnect" hidden>Trennen</button>
+      <button id="roomConnect">Verbinden</button>
+    </div>
+  </form>
+</div>
+
 <main id="stage" hidden>
   <div id="top">
     <span class="title" id="bookTitle"></span>
+    <button id="sync">Vorlese-App</button>
     <button id="editBook">Bearbeiten</button>
     <button id="close">Andere Bücher</button>
   </div>
   <button id="next" aria-live="polite">
     <span class="now" id="now"></span>
     <span class="label" id="nextLabel"></span>
+    <span id="fuseTrack" aria-hidden="true" hidden><span id="fuse"></span></span>
   </button>
   <div>
     <div id="status" role="status"></div>
@@ -366,6 +408,7 @@ function render() {
   $("back").style.visibility = idx < 0 ? "hidden" : "visible";
   $("dots").innerHTML = cues.map((_, k) =>
     `<span class="${k < idx ? "past" : k === idx ? "current" : ""}"></span>`).join("");
+  renderSync();
 }
 
 function turn() {
@@ -392,15 +435,181 @@ async function go(to, forward) {
     setScene(e.scene);
     audio.setLoop(e.loop);
   }
+  armFuse();
+}
+
+// ---------- Der Vorlese-App folgen (ADR 0008) ----------
+// Die App veröffentlicht die aufgeschlagene Seite in einem Raum ihrer Datenbank.
+// Das Board liest mit; es schreibt dort nie etwas hinein.
+const DB = "https://super-vorlese-app-default-rtdb.europe-west1.firebasedatabase.app";
+const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;      // Alphabet der Lese-Codes der Vorlese-App
+const CODE_STORE = "vorlese-codes";
+// Lesetempo für Momente mitten auf einer Seite (ADR 0009)
+const PACE_SAMPLES = 5, PACE_MIN = 15000, PACE_MAX = 240000, PACE_DEFAULT = 60000;
+
+let room = null;    // {code, es, page, state, turns: [ms], pageStart, timer}
+
+function savedCodes() {
+  try { return JSON.parse(localStorage.getItem(CODE_STORE)) || {}; } catch { return {}; }
+}
+
+function rememberCode(id, code) {
+  const all = savedCodes();
+  if (code) all[id] = code; else delete all[id];
+  try { localStorage.setItem(CODE_STORE, JSON.stringify(all)); } catch {}
+}
+
+const roomUrl = code => `${DB}/rooms/${encodeURIComponent(code)}.json`;
+
+// Jedes Buch hat seinen eigenen Lese-Code; beim Öffnen gilt der des Buchs.
+function applyBookRoom(id) {
+  const code = savedCodes()[id];
+  if (room && room.code === code) return;
+  disconnectRoom();
+  if (code) connectRoom(code, id);
+}
+
+function connectRoom(code, id) {
+  disconnectRoom();
+  // bookId merkt sich, zu welchem Buch der Code gehört: Der Editor hat kein offenes Buch.
+  const r = room = { code, bookId: id, es: null, page: null, state: "wait",
+                     turns: [], pageStart: 0, timer: null };
+  const es = r.es = new EventSource(roomUrl(code));
+  // put: der Stand dieses Pfads. patch: einzelne Felder davon. Alles andere im
+  // Raum (Zeiger, Stimmungsrunde, Verbindungsaufbau) geht das Board nichts an.
+  const handle = whole => e => {
+    if (room !== r) return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.path === "/page") return setRoomPage(msg.data);
+    if (msg.path !== "/") return;
+    if (whole && msg.data === null) return roomGone();
+    if (msg.data && typeof msg.data === "object") setRoomPage(msg.data.page);
+  };
+  es.addEventListener("put", handle(true));
+  es.addEventListener("patch", handle(false));
+  // Der Browser verbindet von selbst neu; bis dahin sagt die Leiste, dass es hakt.
+  es.addEventListener("error", () => { if (room === r) { r.state = "lost"; renderSync(); } });
+  es.addEventListener("open", () => { if (room === r) { r.state = "live"; renderSync(); } });
+  rememberCode(id, code);
+  renderSync();
+}
+
+function disconnectRoom(forget = false) {
+  if (!room) return;
+  clearTimeout(room.timer);
+  room.es.close();
+  if (forget) rememberCode(room.bookId, null);
+  room = null;
+  stopFuse();
+  renderSync();
+}
+
+// Die Vorlese-App löscht einen Raum 45 Tage nach dem letzten Umblättern.
+function roomGone() {
+  disconnectRoom(true);
+  const msg = "Dieser Lese-Code gilt nicht mehr. In der Vorlese-App einen neuen erstellen.";
+  if (book) status(msg); else if (edit) edStatus(msg, true);
+}
+
+function setRoomPage(page) {
+  if (typeof page !== "number" || !Number.isFinite(page)) return;
+  if (page === room.page) return;
+  // Nur das Weiterblättern um eine Seite misst das Lesetempo; ein Sprung nicht.
+  if (page === room.page + 1 && room.pageStart) {
+    room.turns.push(Date.now() - room.pageStart);
+    if (room.turns.length > PACE_SAMPLES) room.turns.shift();
+  }
+  room.page = page;
+  room.pageStart = Date.now();
+  room.state = "live";
+  if (book) goToPage(page); else renderSync();
+}
+
+// Umblättern heisst «ab hier lesen» beim Moment dieser Seite: Zustand herstellen,
+// Einzeleffekte übersprungener Momente bleiben stumm (ADR 0008).
+//
+// Hat die aufgeschlagene Seite keinen eigenen Moment, gilt die Seite davor als
+// ganz gelesen: Das Board rückt bis an deren letzten Moment. Sonst hinge eine
+// Position dieser Seite (ADR 0009) weiter in der Luft und käme, gemessen ab der
+// neuen Seite, verspätet — obwohl ein Umblättern sie verfallen lässt.
+function goToPage(page) {
+  const cues = book.cues;
+  let to = -1, exact = false;
+  for (let k = 0; k < cues.length; k++) {
+    if (typeof cues[k].page !== "number" || cues[k].page > page) continue;
+    to = k;
+    exact = cues[k].page === page;
+  }
+  if (to >= 0 && !exact)
+    while (to + 1 < cues.length && typeof cues[to + 1].page !== "number") to++;
+  if (to === idx) { armFuse(); renderSync(); return; }
+  // Der Einzeleffekt gehört zum Betreten der Seite; zurück bleibt er stumm (ADR 0003).
+  const entry = exact && to > idx ? cues[to] : null;
+  go(to, false);
+  if (entry && entry.oneshot) audio.playOnce(entry.oneshot);
+}
+
+function renderSync() {
+  const b = $("sync");
+  b.hidden = !book;
+  b.textContent = !room ? "Vorlese-App"
+    : room.state === "lost" ? "Verbindung weg"
+    : room.page === null ? "verbindet …"
+    : "Seite " + room.page;
+  b.className = !room ? "" : room.state === "lost" ? "warn" : room.page === null ? "" : "live";
+}
+
+// ---------- Momente mitten auf einer Seite (ADR 0009) ----------
+// Der nächste Moment kommt beim Tippen oder zu seiner geschätzten Zeit — was
+// zuerst eintritt. Ein Umblättern überschreibt beides.
+function pace() {
+  if (room.turns.length < 2) return PACE_DEFAULT;
+  const sorted = [...room.turns].sort((a, b) => a - b), mid = sorted.length >> 1;
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return Math.min(Math.max(median, PACE_MIN), PACE_MAX);
+}
+
+function armFuse() {
+  if (room) { clearTimeout(room.timer); room.timer = null; }
+  const next = book && room && room.page !== null ? book.cues[idx + 1] : null;
+  const at = next && typeof next.at === "number" ? next.at : null;
+  // Eine Position gilt nur auf ihrer eigenen Seite. Steht die App längst
+  // woanders, wartet der Moment auf einen Tipp statt auf die falsche Uhr.
+  if (at === null || !(at > 0 && at < 1) || pageBefore(book.cues, idx + 1) !== room.page)
+    return stopFuse();
+  const total = at * pace(), left = Math.max(total - (Date.now() - room.pageStart), 0);
+  room.timer = setTimeout(() => { if (book && room) go(idx + 1, true); }, left);
+  runFuse(1 - left / total, left);
+}
+
+function runFuse(from, ms) {
+  const track = $("fuseTrack"), fuse = $("fuse");
+  track.hidden = false;
+  fuse.style.transition = "none";
+  fuse.style.width = Math.min(Math.max(from, 0), 1) * 100 + "%";
+  void fuse.offsetWidth;                   // Startbreite übernehmen, bevor sie wächst
+  fuse.style.transition = `width ${ms}ms linear`;
+  fuse.style.width = "100%";
+}
+
+function stopFuse() {
+  $("fuseTrack").hidden = true;
+  $("fuse").style.transition = "none";
+  $("fuse").style.width = "0";
 }
 
 // ---------- Screens ----------
 async function openBook(id) {
   audio.init();                       // erster Tipp entsperrt Audio auf iOS
-  const r = await fetch("/api/books/" + encodeURIComponent(id));
-  const j = await r.json();
-  if (!r.ok) { $("shelfHint").textContent = j.error; return; }
+  let r, j;
+  try {
+    r = await fetch("/api/books/" + encodeURIComponent(id));
+    j = await r.json();
+  } catch { $("shelfHint").textContent = "Server nicht erreichbar."; return false; }
+  if (!r.ok) { $("shelfHint").textContent = j.error; return false; }
   startReading(id, j, -1);
+  return true;
 }
 
 // Lesemodus starten. start >= 0 stellt Licht und Teppich so ein, wie sie nach
@@ -410,6 +619,7 @@ async function startReading(id, data, start) {
   const sounds = [...new Set(book.cues.flatMap(c => [c.loop, c.oneshot]).filter(Boolean))];
   $("bookTitle").textContent = book.title;
   $("shelf").hidden = true; $("editor").hidden = true; $("stage").hidden = false;
+  applyBookRoom(id);                  // der gemerkte Lese-Code dieses Buchs
   render();
   if (start >= 0) go(start, false);
   const missing = await audio.load(sounds);
@@ -423,6 +633,7 @@ async function startReading(id, data, start) {
 
 function closeBook() {
   audio.fadeOutLoop();
+  disconnectRoom();                   // der Code bleibt beim Buch gemerkt
   book = null; bookId = null;
   $("stage").hidden = true; $("shelf").hidden = false;
   loadShelf();                        // Buchdateien können sich inzwischen geändert haben
@@ -458,12 +669,14 @@ function shelfEntry(b) {
 }
 
 let shelfRequest = 0;
+let shelfBooks = [];                        // letzter Stand des Regals, für die Suche per Lese-Code
 async function loadShelf() {
   const request = ++shelfRequest;
   try {
     const j = await (await fetch("/api/books")).json();
     if (request !== shelfRequest) return;   // eine neuere Anfrage läuft schon
     setEditAccess(j.edit);
+    shelfBooks = j.books;
     $("books").replaceChildren(...j.books.map(shelfEntry));
     $("shelfHint").textContent = [
       !j.books.length && (canEdit() ? "Noch keine Bücher. Leg mit «Neues Buch» das erste an." : "Noch keine Bücher."),
@@ -476,6 +689,138 @@ async function loadShelf() {
     if (request === shelfRequest) $("shelfHint").textContent = "Server nicht erreichbar.";
   }
 }
+
+// ---------- Lese-Code eingeben ----------
+// Wer vor dem Board steht, hat sechs Ziffern und sonst nichts: Der Code sucht
+// das Buch, nicht umgekehrt (ADR 0008).
+let roomCtx = null;    // {bookId, code, hash, title}, solange der Dialog offen ist
+
+function openRoomDialog(forBook = null) {
+  roomCtx = { bookId: forBook, code: null, hash: null, title: null, busy: false };
+  $("roomCode").value = "";
+  $("roomError").textContent = "";
+  $("roomList").replaceChildren();
+  $("roomConnect").disabled = false;      // eine alte Anfrage darf den neuen Dialog nicht sperren
+  $("roomConnect").textContent = "Verbinden";
+  $("roomDialog").hidden = false;
+  renderRoomDialog();
+  if (!room) $("roomCode").focus();
+}
+
+function closeRoomDialog() {
+  roomCtx = null;
+  $("roomDialog").hidden = true;
+}
+
+function renderRoomDialog() {
+  const connected = !!room;
+  $("roomTitle").textContent = connected ? "Vorlese-App" : "Mit der Vorlese-App verbinden";
+  $("roomHint").textContent = connected
+    ? `Verbunden mit dem Lese-Code ${room.code}. ` + (room.page === null
+        ? "Sobald jemand umblättert, folgt das Board."
+        : `Die App ist auf Seite ${room.page}.`)
+    : "Den Lese-Code zeigt die Vorlese-App unter «Gemeinsam lesen». "
+      + "Das Board liest nur mit und blättert dort nie selbst.";
+  $("roomCode").hidden = connected;
+  $("roomConnect").hidden = connected;
+  $("roomDisconnect").hidden = !connected;
+}
+
+async function submitRoom() {
+  const ctx = roomCtx;
+  if (!ctx || ctx.busy) return;             // die Eingabetaste kommt auch am gesperrten Knopf vorbei
+  const code = $("roomCode").value.trim().toUpperCase();
+  if (!CODE_RE.test(code)) {
+    $("roomError").textContent = "Sechs Zeichen, genau wie in der Vorlese-App.";
+    return;
+  }
+  ctx.busy = true;
+  $("roomConnect").disabled = true;
+  $("roomConnect").textContent = "Sucht …";
+  let data;
+  try {
+    const r = await fetch(roomUrl(code));
+    data = r.ok ? await r.json() : undefined;    // nicht ok: wie nicht erreichbar behandeln
+  } catch { data = undefined; }
+  // Der Dialog ist inzwischen geschlossen oder neu geöffnet: Diese Antwort
+  // gehört zu einer anderen Frage und darf den neuen Dialog nicht anfassen.
+  if (roomCtx !== ctx) return;
+  ctx.busy = false;
+  $("roomConnect").disabled = false;
+  $("roomConnect").textContent = "Verbinden";
+  if (data === undefined) {
+    $("roomError").textContent = "Die Vorlese-App ist nicht erreichbar. Hat dieses Gerät Internet?";
+    return;
+  }
+  if (!data) {
+    $("roomError").textContent = "Diesen Lese-Code gibt es nicht. In der Vorlese-App einen neuen erstellen.";
+    return;
+  }
+  ctx.code = code;
+  ctx.hash = typeof data.book?.hash === "string" ? data.book.hash : null;
+  ctx.title = typeof data.book?.title === "string" ? data.book.title : null;
+  if (ctx.bookId) return startWithRoom(ctx.bookId);
+  const match = ctx.hash && shelfBooks.find(b => !b.error && b.hash === ctx.hash);
+  if (match) return startWithRoom(match.id);
+  renderRoomChoice();
+}
+
+// Der Code nennt ein Buch, das noch zu keinem Buch im Regal gehört.
+function renderRoomChoice() {
+  $("roomError").textContent = "";
+  $("roomHint").textContent = roomCtx.title
+    ? `Der Code gehört zu «${roomCtx.title}». Welches Buch im Regal ist das?`
+    : "Welches Buch im Regal gehört zu diesem Code?";
+  $("roomCode").hidden = true;
+  $("roomConnect").hidden = true;
+  const usable = shelfBooks.filter(b => !b.error);
+  $("roomList").replaceChildren(...(usable.length
+    ? usable.map(b => h("button", { type: "button", className: "option",
+        onclick: () => startWithRoom(b.id) },
+        h("span", { textContent: b.title }),
+        h("small", { textContent: b.pages ? "mit Seitenzahlen" : "ohne Seitenzahlen" })))
+    : [h("p", { className: "hint", textContent: "Im Regal steht noch kein Buch." })]));
+}
+
+async function startWithRoom(id) {
+  const { code, hash } = roomCtx;
+  closeRoomDialog();
+  rememberCode(id, code);
+  if (bookId === id) connectRoom(code, id);          // offenes Buch: nur die Verbindung wechseln
+  else if (!(await openBook(id))) return;            // öffnen; applyBookRoom verbindet dabei
+  pairBook(id, hash);
+  if (book && !book.cues.some(c => typeof c.page === "number"))
+    status("Dieses Buch hat noch keine Seitenzahlen. Im Editor bei «Wann» zuordnen.");
+}
+
+// Merkt sich im Buch, zu welchem Buch der Vorlese-App es gehört: Dann findet ein
+// Lese-Code das Buch von selbst wieder. Ohne Schreibrecht bleibt es beim
+// gemerkten Code, deshalb fragt das hier nie nach der PIN.
+async function pairBook(id, hash) {
+  if (!hash || editAccess !== "ok") return;
+  try {
+    const r = await fetch(`/api/books/${encodeURIComponent(id)}/edit`, { headers: EDIT_HEADERS });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j.book.sync?.hash === hash) return;
+    j.book.sync = { hash };
+    await fetch(`/api/books/${encodeURIComponent(id)}`, {
+      method: "PUT", headers: EDIT_HEADERS,
+      body: JSON.stringify({ version: j.version, book: j.book }),
+    });
+  } catch {}
+}
+
+$("connectApp").addEventListener("click", () => openRoomDialog(null));
+$("sync").addEventListener("click", () => openRoomDialog(bookId));
+$("roomForm").addEventListener("submit", e => { e.preventDefault(); submitRoom(); });
+$("roomCancel").addEventListener("click", closeRoomDialog);
+$("roomDisconnect").addEventListener("click", () => { disconnectRoom(true); closeRoomDialog(); });
+$("roomDialog").addEventListener("click", e => { if (e.target === $("roomDialog")) closeRoomDialog(); });
+$("roomCode").addEventListener("input", () => {
+  $("roomCode").value = $("roomCode").value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 6);
+  $("roomError").textContent = "";
+});
 
 // ---------- Editor ----------
 // Jede Änderung wird sofort gespeichert (ADR 0006). version ist der Dateistand,
@@ -507,6 +852,7 @@ async function openEditor(id, open = -1, focus = null) {
   edit = { id, book: j.book, version: j.version, problems: j.problems, open,
            dirty: false, saving: null, timer: null, conflict: false, deleted: null };
   $("edTitle").value = edit.book.title ?? "";
+  applyBookRoom(id);                  // damit «Wann» die Seite der Vorlese-App kennt
   renderRoom();
   edStatus("");
   $("shelf").hidden = true; $("stage").hidden = true; $("editor").hidden = false;
@@ -520,6 +866,7 @@ async function leaveEditor() {
   closePicker(false);
   hideToast();
   edit = null;
+  disconnectRoom();                   // der Code bleibt beim Buch gemerkt
   $("editor").hidden = true; $("shelf").hidden = false;
   loadShelf();
 }
@@ -602,7 +949,19 @@ async function saveLoop(e) {
   return true;
 }
 
-const FIELDS = [["scene", "Licht"], ["loop", "Teppich"], ["oneshot", "Effekt"]];
+const FIELDS = [["when", "Wann"], ["scene", "Licht"], ["loop", "Teppich"], ["oneshot", "Effekt"]];
+
+// «Wann» steht nur dort, wo es etwas zu entscheiden gibt: in einem Buch mit
+// Seitenzahlen oder solange die Vorlese-App verbunden ist.
+const usesPages = () => edit.book.cues.some(c => "page" in c || "at" in c);
+
+// Seitenzahl, die vor Moment i zuletzt genannt wurde; null, wenn es keine gibt.
+function pageBefore(cues, i) {
+  for (let k = i - 1; k >= 0; k--) if (typeof cues[k].page === "number") return cues[k].page;
+  return null;
+}
+
+const percent = at => Math.round(at * 100) + " %";
 
 function sceneText(s) {
   return [s.name, s.room, s.dynamic && "dynamisch"].filter(Boolean).join(" · ") || "ungültige Szene";
@@ -624,6 +983,14 @@ function renderRoom() {
 // Text im Feld; «unverändert» und «läuft weiter» nennen, was vom Moment davor weiterwirkt.
 function fieldText(i, field) {
   const cues = edit.book.cues, cue = cues[i], before = effective(cues, i - 1);
+  if (field === "when") {
+    if (typeof cue.page === "number") return { text: "Seite " + cue.page };
+    if (typeof cue.at === "number") {
+      const page = pageBefore(cues, i);
+      return { text: (page === null ? "ohne Seite" : "Seite " + page) + ", bei " + percent(cue.at) };
+    }
+    return { text: "beim Tippen", keep: true };
+  }
   if (field === "scene") {
     if (cue.scene) return { text: sceneText(cue.scene) };
     return { text: before.scene ? `unverändert (${before.scene.name})` : "unverändert", keep: true };
@@ -637,6 +1004,8 @@ function fieldText(i, field) {
 
 function summary(cue) {
   const parts = [];
+  if (typeof cue.page === "number") parts.push("Seite " + cue.page);
+  else if (typeof cue.at === "number") parts.push("bei " + percent(cue.at) + " der Seite");
   if (cue.scene) parts.push(sceneText(cue.scene));
   if ("loop" in cue) parts.push(cue.loop === null ? "Teppich aus" : "Teppich " + cue.loop);
   if (cue.oneshot) parts.push("Effekt " + cue.oneshot);
@@ -687,7 +1056,7 @@ function openMoment(cue, i) {
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); insertMoment(i + 1); }
   });
-  const fields = FIELDS.map(([field, name]) => {
+  const fields = FIELDS.filter(([field]) => field !== "when" || usesPages() || room).map(([field, name]) => {
     const t = fieldText(i, field);
     const chip = h("button", { className: "chip" + (t.keep ? " keep" : ""), textContent: t.text,
                                onclick: () => openPicker(i, field) });
@@ -714,7 +1083,7 @@ function openMoment(cue, i) {
 // Probleme an die Stelle, an der man sie beheben kann. Eine fehlende Bezeichnung
 // zeigt das leere Feld selbst.
 function renderProblems() {
-  const own = ["label", "scene", "loop", "oneshot"];
+  const own = ["label", "when", "scene", "loop", "oneshot"];
   document.querySelectorAll("#editor [data-field]:not(.chip)").forEach(slot => {
     const cue = slot.dataset.cue === "book" ? null : Number(slot.dataset.cue), f = slot.dataset.field;
     const found = edit.problems.filter(p => p.cue === cue && (
@@ -793,15 +1162,17 @@ async function openPicker(i, field) {
   const p = picker = { i, field, items: null, error: null, playing: null, preview: null,
                        all: !bookRoom(), justSet: null };
   $("pickerTitle").textContent = field === "room" ? "Standardraum des Buchs"
-    : `${{ scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(edit.book.cues[i], i)}`;
+    : `${{ when: "Wann", scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(edit.book.cues[i], i)}`;
   $("pickerSearch").value = "";
   $("pickerSearch").placeholder =
     { scene: "Szene oder Raum suchen", room: "Raum suchen" }[field] || "Sound suchen";
+  $("pickerSearch").hidden = field === "when";        // hier gibt es nichts zu durchsuchen
   $("pickerDynamic").hidden = field !== "scene";
   $("pickerFilter").hidden = true;
   $("pickerStatus").textContent = "";
   $("picker").hidden = false;
   renderPicker();
+  if (field === "when") return;                       // die Antworten stehen schon im Buch
   try {
     const j = await (await fetch(light ? "/api/scenes" : "/api/sounds")).json();
     if (picker !== p) return;
@@ -845,7 +1216,31 @@ function renderPicker() {
   const heading = text => rows.push(h("h3", { textContent: text }));
   const hint = text => rows.push(h("p", { className: "hint", textContent: text }));
 
-  if (field === "room") {
+  if (field === "when") {
+    const before = pageBefore(edit.book.cues, i);
+    const at = typeof cue.at === "number" ? cue.at : null;
+    const page = typeof cue.page === "number" ? cue.page : null;
+    const live = room && room.page !== null ? room.page : null;
+    option("Beim Tippen", "ohne Seite", page === null && at === null, () => pickWhen({}));
+    heading("Zu Beginn einer Seite");
+    // Die gewählte Seite bleibt sichtbar, auch wenn die App gerade woanders steht.
+    if (page !== null && page !== live)
+      option("Seite " + page, "✓ gewählt", true, () => pickWhen({ page }));
+    if (live !== null)
+      option("Seite " + live, page === live ? "✓ gewählt, dort ist die Vorlese-App" : "dort ist die Vorlese-App gerade",
+             page === live, () => pickWhen({ page: live }));
+    else
+      hint("Ist das Buch mit der Vorlese-App verbunden, steht hier die Seite, die sie gerade zeigt.");
+    rows.push(pageRow(cue));
+    if (before === null) {
+      hint("Ein Moment mitten auf der Seite braucht davor einen Moment mit Seitenzahl.");
+    } else {
+      heading("Mitten auf der Seite");
+      const pct = Math.round((at ?? 0.5) * 100);
+      option(`Auf Seite ${before}`, "bei " + pct + " %", at !== null, () => pickWhen({ at: pct / 100 }));
+      rows.push(atRow(before, pct));
+    }
+  } else if (field === "room") {
     const cur = bookRoom();
     option("Alle Räume", "keine Vorauswahl", !cur, () => pickRoom(""));
     if (cur && items && !items.some(r => same(r, cur)))
@@ -916,6 +1311,41 @@ function renderFilterLine(room, inRoom, filtered) {
     textContent: filtered ? "Alle Räume zeigen" : `Nur «${room}» zeigen`,
     onclick: () => { picker.all = filtered; picker.justSet = null; renderPicker(); },
   }));
+}
+
+// Seitenzahl von Hand, wenn die Vorlese-App gerade nicht verbunden ist.
+function pageRow(cue) {
+  const input = h("input", { type: "number", min: "0", step: "1", inputMode: "numeric",
+    value: typeof cue.page === "number" ? cue.page : "", placeholder: "Seite" });
+  input.setAttribute("aria-label", "Seitenzahl eingeben");
+  input.addEventListener("change", () => {
+    const n = parseInt(input.value, 10);
+    if (Number.isInteger(n) && n >= 0) pickWhen({ page: n });
+    else if (input.value.trim() === "" && typeof cue.page === "number") pickWhen({});
+  });
+  return h("div", { className: "pickRow" }, h("span", { textContent: "Seite" }), input);
+}
+
+// Position auf der Seite: Der Autor weiss, wo im Text der Moment sitzt, nicht,
+// wie lange die Seite dauert (ADR 0009).
+function atRow(page, pct) {
+  const out = h("span", { className: "pct", textContent: pct + " %" });
+  const slider = h("input", { type: "range", min: "5", max: "95", step: "5", value: String(pct) });
+  slider.setAttribute("aria-label", `Position auf Seite ${page}, in Prozent`);
+  slider.addEventListener("input", () => { out.textContent = slider.value + " %"; });
+  slider.addEventListener("change", () => pickWhen({ at: Number(slider.value) / 100 }));
+  return h("div", { className: "pickRow" }, h("span", { textContent: "Anfang — Ende" }), slider, out);
+}
+
+// Beides zusammen beantwortet «wann»: Seitenanfang, Position auf der Seite oder gar nichts.
+function pickWhen(when) {
+  const cue = edit.book.cues[picker.i];
+  delete cue.page;
+  delete cue.at;
+  if ("page" in when) cue.page = when.page;
+  if ("at" in when) cue.at = when.at;
+  changed();
+  renderPicker();
 }
 
 function pickScene(s) {
@@ -1127,6 +1557,7 @@ $("editBook").addEventListener("click", () => withEditAccess(async () => {
 // Pfeiltasten: Bluetooth-Seitenwender und Tastaturen senden diese
 document.addEventListener("keydown", e => {
   if (pinPrompt) { if (e.key === "Escape") closePin(false); return; }
+  if (roomCtx) { if (e.key === "Escape") closeRoomDialog(); return; }
   if (picker && e.key === "Escape") { closePicker(); return; }
   if (!book) return;
   if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); go(idx + 1, true); }
@@ -1134,7 +1565,10 @@ document.addEventListener("keydown", e => {
 });
 // Zurück im Regal, etwa nach dem Bearbeiten einer Buchdatei am Mac: neu prüfen
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !$("shelf").hidden) loadShelf();
+  if (document.visibilityState !== "visible") return;
+  if (!$("shelf").hidden) loadShelf();
+  // Im Hintergrund bremst der Browser Zeitgeber; die Zündschnur rechnet neu.
+  if (book && room) armFuse();
 });
 loadShelf();
 </script>
