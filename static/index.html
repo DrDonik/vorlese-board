@@ -865,8 +865,12 @@ function renderPicker() {
     renderFilterLine(items?.length ? room : "", inRoom.length, filtered);
     $("pickerSearch").placeholder = filtered ? "Szene suchen" : "Szene oder Raum suchen";
     const shown = (filtered ? inRoom : items || []).filter(matches);
+    const hit = cur && items ? items.find(isCur) : null;
     option("Kein Lichtwechsel", before ? `bleibt ${before.name}` : "", !cur, () => pickScene(null));
-    if (cur && items && !items.some(isCur)) option(sceneText(cur), "nicht auf der Bridge", true, () => {}, true);
+    // Was der Moment schaltet, bleibt sichtbar, auch wenn Filter oder Suche es ausblenden.
+    if (cur && items && !shown.some(isCur))
+      option(sceneText(cur), hit ? "✓ gewählt" : "nicht auf der Bridge", true,
+             hit ? () => pickScene(hit) : () => {}, !hit);
     if (!items) hint("Lade Szenen …");
     else if (filtered && !shown.length && items.some(matches))
       hint(`Keine Treffer in «${room}», aber ${plural(items.filter(matches).length,
