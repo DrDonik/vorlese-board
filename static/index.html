@@ -528,13 +528,26 @@ function setRoomPage(page) {
 
 // Umblättern heisst «ab hier lesen» beim Moment dieser Seite: Zustand herstellen,
 // Einzeleffekte übersprungener Momente bleiben stumm (ADR 0008).
+//
+// Hat die aufgeschlagene Seite keinen eigenen Moment, gilt die Seite davor als
+// ganz gelesen: Das Board rückt bis an deren letzten Moment. Sonst hinge eine
+// Position dieser Seite (ADR 0009) weiter in der Luft und käme, gemessen ab der
+// neuen Seite, verspätet — obwohl ein Umblättern sie verfallen lässt.
 function goToPage(page) {
-  let to = -1;
-  book.cues.forEach((c, k) => { if (typeof c.page === "number" && c.page <= page) to = k; });
+  const cues = book.cues;
+  let to = -1, exact = false;
+  for (let k = 0; k < cues.length; k++) {
+    if (typeof cues[k].page !== "number" || cues[k].page > page) continue;
+    to = k;
+    exact = cues[k].page === page;
+  }
+  if (to >= 0 && !exact)
+    while (to + 1 < cues.length && typeof cues[to + 1].page !== "number") to++;
   if (to === idx) { armFuse(); renderSync(); return; }
-  const forward = to > idx, cue = book.cues[to];
+  // Der Einzeleffekt gehört zum Betreten der Seite; zurück bleibt er stumm (ADR 0003).
+  const entry = exact && to > idx ? cues[to] : null;
   go(to, false);
-  if (forward && cue.oneshot) audio.playOnce(cue.oneshot);
+  if (entry && entry.oneshot) audio.playOnce(entry.oneshot);
 }
 
 function renderSync() {
@@ -561,7 +574,10 @@ function armFuse() {
   if (room) { clearTimeout(room.timer); room.timer = null; }
   const next = book && room && room.page !== null ? book.cues[idx + 1] : null;
   const at = next && typeof next.at === "number" ? next.at : null;
-  if (at === null || !(at > 0 && at < 1)) return stopFuse();
+  // Eine Position gilt nur auf ihrer eigenen Seite. Steht die App längst
+  // woanders, wartet der Moment auf einen Tipp statt auf die falsche Uhr.
+  if (at === null || !(at > 0 && at < 1) || pageBefore(book.cues, idx + 1) !== room.page)
+    return stopFuse();
   const total = at * pace(), left = Math.max(total - (Date.now() - room.pageStart), 0);
   room.timer = setTimeout(() => { if (book && room) go(idx + 1, true); }, left);
   runFuse(1 - left / total, left);
@@ -680,10 +696,12 @@ async function loadShelf() {
 let roomCtx = null;    // {bookId, code, hash, title}, solange der Dialog offen ist
 
 function openRoomDialog(forBook = null) {
-  roomCtx = { bookId: forBook, code: null, hash: null, title: null };
+  roomCtx = { bookId: forBook, code: null, hash: null, title: null, busy: false };
   $("roomCode").value = "";
   $("roomError").textContent = "";
   $("roomList").replaceChildren();
+  $("roomConnect").disabled = false;      // eine alte Anfrage darf den neuen Dialog nicht sperren
+  $("roomConnect").textContent = "Verbinden";
   $("roomDialog").hidden = false;
   renderRoomDialog();
   if (!room) $("roomCode").focus();
@@ -709,11 +727,14 @@ function renderRoomDialog() {
 }
 
 async function submitRoom() {
+  const ctx = roomCtx;
+  if (!ctx || ctx.busy) return;             // die Eingabetaste kommt auch am gesperrten Knopf vorbei
   const code = $("roomCode").value.trim().toUpperCase();
   if (!CODE_RE.test(code)) {
     $("roomError").textContent = "Sechs Zeichen, genau wie in der Vorlese-App.";
     return;
   }
+  ctx.busy = true;
   $("roomConnect").disabled = true;
   $("roomConnect").textContent = "Sucht …";
   let data;
@@ -721,9 +742,12 @@ async function submitRoom() {
     const r = await fetch(roomUrl(code));
     data = r.ok ? await r.json() : undefined;    // nicht ok: wie nicht erreichbar behandeln
   } catch { data = undefined; }
+  // Der Dialog ist inzwischen geschlossen oder neu geöffnet: Diese Antwort
+  // gehört zu einer anderen Frage und darf den neuen Dialog nicht anfassen.
+  if (roomCtx !== ctx) return;
+  ctx.busy = false;
   $("roomConnect").disabled = false;
   $("roomConnect").textContent = "Verbinden";
-  if (!roomCtx) return;                     // inzwischen abgebrochen
   if (data === undefined) {
     $("roomError").textContent = "Die Vorlese-App ist nicht erreichbar. Hat dieses Gerät Internet?";
     return;
@@ -732,11 +756,11 @@ async function submitRoom() {
     $("roomError").textContent = "Diesen Lese-Code gibt es nicht. In der Vorlese-App einen neuen erstellen.";
     return;
   }
-  roomCtx.code = code;
-  roomCtx.hash = typeof data.book?.hash === "string" ? data.book.hash : null;
-  roomCtx.title = typeof data.book?.title === "string" ? data.book.title : null;
-  if (roomCtx.bookId) return startWithRoom(roomCtx.bookId);
-  const match = roomCtx.hash && shelfBooks.find(b => !b.error && b.hash === roomCtx.hash);
+  ctx.code = code;
+  ctx.hash = typeof data.book?.hash === "string" ? data.book.hash : null;
+  ctx.title = typeof data.book?.title === "string" ? data.book.title : null;
+  if (ctx.bookId) return startWithRoom(ctx.bookId);
+  const match = ctx.hash && shelfBooks.find(b => !b.error && b.hash === ctx.hash);
   if (match) return startWithRoom(match.id);
   renderRoomChoice();
 }

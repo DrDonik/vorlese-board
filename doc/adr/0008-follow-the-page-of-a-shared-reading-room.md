@@ -70,10 +70,19 @@ the same page.
 
 **A page turn is "ab hier lesen".** It moves to that page's entry cue and
 restores the cumulative state there — the light and the loop as they would be
-when read from the start — and plays that cue's one-shot. One-shots of skipped
-cues do not play, forwards or backwards. This is the semantics ADR 3 already
-defines for "Zurück" and ADR 6 for "ab hier lesen"; no third rule enters the
-app.
+when read from the start. Turning *forward* onto a page also plays its entry
+cue's one-shot: that effect is what entering the page sounds like. Turning back
+does not, exactly as "Zurück" does not (ADR 3) — a page one returns to is being
+re-read, and a thunderclap repeated on the way there startles rather than helps.
+One-shots of cues that are skipped never play, in either direction. This is the
+semantics ADR 3 already defines for "Zurück" and ADR 6 for "ab hier lesen"; no
+third rule enters the app.
+
+**A page the book gives no moment of its own belongs to the page before it.**
+Turning onto such a page moves the board to the *last* cue of the preceding
+page, not to that page's entry. Its light and loop therefore apply — the page
+has been read — and a position still pending there (ADR 9) is left behind
+rather than going off a page later, measured against the wrong page.
 
 **The room speaks, but the board is not demoted to a display.** "Weiter",
 "Zurück" and the page-turner keys keep working while a room is connected; they

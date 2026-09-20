@@ -66,8 +66,11 @@ more way to trigger the very next moment, the same one the screen is showing.
 Tapping ahead of the timer cancels it. A page turn drops every moment still
 pending on the page being left; they do not catch up.
 
-Timers are armed only while a room is connected (ADR 8). Reading from a paper
-book is unchanged: nothing fires by itself.
+Timers are armed only while a room is connected (ADR 8), and only while the room
+is on the position's own page. If the app has moved on — including onto a page
+the book gives no moment of its own — the moment waits for a tap rather than for
+a clock that is measuring the wrong page. Reading from a paper book is
+unchanged: nothing fires by itself.
 
 **The guess is visible, because the board acts on its own.** The upcoming moment
 carries a thin bar that fills toward its estimated time. Whoever is at the board
