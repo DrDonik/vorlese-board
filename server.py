@@ -36,7 +36,9 @@ BOOKS_DIR = ROOT / "books"
 SOUNDS_DIR = ROOT / "sounds"
 PORT = 8765
 
-BOOK_FIELDS = {"title", "cues"}
+BOOK_FIELDS = {"title", "room", "cues"}
+# Feste Reihenfolge beim Schreiben; Unbekanntes steht vor den Momenten und faellt so auf.
+BOOK_KEY_ORDER = {"title": 0, "room": 1, "cues": 3}
 CUE_FIELDS = {"label", "scene", "loop", "oneshot", "triggers"}
 SCENE_FIELDS = {"name", "room", "dynamic"}
 SOUND_TYPES = {".mp3", ".m4a", ".wav", ".aac"}
@@ -203,7 +205,7 @@ def format_book(data):
     def compact(value):
         return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
     fields = []
-    for key, value in data.items():
+    for key, value in sorted(data.items(), key=lambda kv: BOOK_KEY_ORDER.get(kv[0], 2)):
         if key == "cues" and value:
             cues = ",\n".join(f"    {compact(c)}" for c in value)
             fields.append(f"  {compact(key)}: [\n{cues}\n  ]")
@@ -255,6 +257,8 @@ def book_problems(data, scenes=None):
         book_problem(f"unbekanntes Feld «{key}»")
     if "title" in data and not isinstance(data["title"], str):
         book_problem("«title» muss Text sein")
+    if "room" in data and not isinstance(data["room"], str):
+        book_problem("«room» muss Text sein")
     for i, cue in enumerate(data["cues"]):
         label = cue.get("label")
         has_label = isinstance(label, str) and label.strip()
