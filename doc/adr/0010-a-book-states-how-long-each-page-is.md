@@ -20,7 +20,7 @@ of the two knows it: **how long this one page is compared to the others.**
 The book that exposed it alternates almost regularly between a picture page and
 a page of verse:
 
-```
+```text
 page  2   4   6   8  10  12  14  16  18      page  3   5   7   9  11  13  15  17
      1400 459 1164 1194 1082 1272 528 1237 324     599 523 638 619 607 1338 665 1135
 ```

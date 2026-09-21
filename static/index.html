@@ -578,8 +578,11 @@ function spanOfCue(cue) {
 function spanOf(page) {
   const b = book || (edit && edit.book);
   if (!b || typeof page !== "number") return 1;
-  const cue = b.cues.find(c => c.page === page);
-  return cue ? spanOfCue(cue) : 1;
+  // Von hinten, wie goToPage: Ist eine Seite doppelt vergeben, gilt die Länge des
+  // Moments, auf dem das Umblättern landet. Das Regal meldet so ein Buch ohnehin.
+  for (let k = b.cues.length - 1; k >= 0; k--)
+    if (b.cues[k].page === page) return spanOfCue(b.cues[k]);
+  return 1;
 }
 
 // Sekunden für eine normale Seite, nicht für die gerade offene.
