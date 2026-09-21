@@ -1,4 +1,4 @@
-# 10. The book is closed and put on the shelf
+# 11. The book is closed and put on the shelf
 
 Date: 2026-09-21
 
@@ -6,7 +6,7 @@ Date: 2026-09-21
 
 Accepted
 
-Amends 0008, builds on 0009
+Amends 0008, builds on 0009 and 0010
 
 ## Context
 
@@ -101,9 +101,10 @@ even though it moves backwards through the cue list. Whoever is reading the book
 a second time is at its beginning, not returning to a page they have read.
 
 **The shelf checks it** (ADR 5): `"end"` is the only text `page` accepts, it
-must be the last moment of the book, and it carries no `at`. A closing moment
-alone is not page numbering: a book that has one and no page numbers cannot
-follow the app, and the shelf says so.
+must be the last moment of the book, and it carries neither `at` nor `span` — a
+moment that is not a page has no position on one and no length of its own
+(ADR 10). A closing moment alone is not page numbering: a book that has one and
+no page numbers cannot follow the app, and the shelf says so.
 
 ## Consequences
 

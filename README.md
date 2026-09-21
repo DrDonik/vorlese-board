@@ -48,7 +48,7 @@ von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liege
       "room": "Wohnzimmer",
       "sync": {"hash": "5f2c…"},
       "cues": [
-        { "label": "Im Wald",    "page": 7, "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
+        { "label": "Im Wald",    "page": 7, "span": 1.8, "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
         { "label": "Es raschelt", "at": 0.6, "oneshot": "rascheln.mp3" },
         { "label": "Zauber",     "scene": {"name": "Polarlicht", "room": "Wohnzimmer", "dynamic": true} },
         { "label": "Gute Nacht", "page": 9, "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
@@ -56,7 +56,7 @@ von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liege
 
 - `room`: Standardraum des Buchs. Er filtert nur die Auswahl im Editor; welche Szene ein
   Moment schaltet, steht immer in dessen `scene.room`.
-- `page`, `at`, `sync`: nur für das Mitlesen mit der Vorlese-App, siehe unten.
+- `page`, `at`, `span`, `sync`: nur für das Mitlesen mit der Vorlese-App, siehe unten.
 - `scene`: Name exakt wie in der Hue-App (Gross-/Kleinschreibung egal); `room` nötig, wenn der
   Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
 - `loop`: Dateiname = Klangteppich überblenden, `null` = ausblenden, Feld weglassen = weiterlaufen lassen.
@@ -74,13 +74,15 @@ JSON-Fehler mit Zeile). Nach dem Ändern einer Datei genügt es, zum Browser zur
 Wird dasselbe Buch in der [Super Vorlese-App](https://drdonik.github.io/super-vorlese-app)
 gelesen, folgt das Board dem Umblättern: beim Vorlesen über die Distanz schaltet es das
 Licht im Kinderzimmer, ohne dass dort jemand tippt (ADR 0008, 0009). Stellt die App das Buch
-ins Regal, erkennt das Board das Ende und folgt nicht zurück auf Seite 1 (ADR 0010).
+ins Regal, erkennt das Board das Ende und folgt nicht zurück auf Seite 1 (ADR 0011).
 
 1. Im Regal «Mit der Vorlese-App verbinden» wählen und den sechsstelligen Lese-Code eingeben.
    Beim ersten Mal fragt das Board, welches Buch im Regal gemeint ist, und merkt sich das
    in `sync.hash`. Danach findet derselbe Code das Buch von selbst.
 2. Im Editor bekommt jeder Moment die Frage «Wann». Dazu in der Vorlese-App auf die Seite
    blättern und im Board «Seite N» antippen — Seitenzahlen muss man sich nicht merken.
+   Unter der Seite steht ihre Länge; sie bleibt unangetastet, bis auf einer Seite ein
+   Effekt zu früh kommt.
 
 - `page`: Der Moment gehört zum Anfang dieser Seite. Umblättern stellt Licht und Klangteppich
   so her, wie sie dort wären; übersprungene Einzeleffekte bleiben stumm. Die Zahlen steigen
@@ -88,10 +90,15 @@ ins Regal, erkennt das Board das Ende und folgt nicht zurück auf Seite 1 (ADR 0
 - `at`: Position zwischen 0 und 1 auf der zuletzt genannten Seite. Der Moment kommt beim
   Tippen oder zu seiner geschätzten Zeit, was zuerst eintritt; ein Umblättern überschreibt
   beides. Die Zeit schätzt das Board aus dem Lesetempo des Abends, ein Balken zeigt sie an.
+- `span`: Wie lang diese Seite gegenüber einer normalen Seite des Buchs ist, zwischen 0.2
+  und 5; ohne Angabe gilt 1. Nur die Seiten zueinander zählen, ein gemeinsamer Faktor ändert
+  nichts. Bei einem Bilderbuch, dessen Seiten sich in der Textmenge stark unterscheiden,
+  träfen die Positionen sonst auf jeder Seite daneben (ADR 0010).
 - `page: "end"`: der Schlussmoment, zum Beispiel ein Nachtlicht und `"loop": null`. Er kommt,
   wenn die Vorlese-App das Buch zuklappt und ins Regal stellt, und ebenso beim Weitertippen
-  hinter dem letzten Moment. Er steht als letzter Moment im Buch und gehört zu keiner Seite
-  (ADR 0010). Ohne Schlussmoment lässt das Zuklappen Licht und Ton, wie sie sind.
+  hinter dem letzten Moment. Er steht als letzter Moment im Buch, gehört zu keiner Seite und
+  trägt deshalb kein `span` (ADR 0011). Ohne Schlussmoment lässt das Zuklappen Licht und Ton,
+  wie sie sind.
 - `sync.hash`: Kennung des Buchs in der Vorlese-App. Setzt das Board beim Verbinden selbst.
 
 Das Board liest nur mit und schreibt nie in den Raum. Der Lese-Code bleibt pro Buch auf

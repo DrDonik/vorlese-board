@@ -40,11 +40,14 @@ BOOK_FIELDS = {"title", "room", "sync", "cues"}
 # Feste Reihenfolge beim Schreiben; Unbekanntes steht vor den Momenten und faellt so auf.
 BOOK_KEY_ORDER = {"title": 0, "room": 1, "sync": 2, "cues": 4}
 # In einem Moment steht erst, wann er kommt, dann was er schaltet; Unbekanntes am Ende.
-CUE_KEY_ORDER = {"label": 0, "page": 1, "at": 1, "scene": 2, "loop": 3, "oneshot": 4, "triggers": 5}
-CUE_FIELDS = {"label", "scene", "loop", "oneshot", "page", "at", "triggers"}
+CUE_KEY_ORDER = {"label": 0, "page": 1, "at": 1, "span": 2, "scene": 3, "loop": 4,
+                 "oneshot": 5, "triggers": 6}
+CUE_FIELDS = {"label", "scene", "loop", "oneshot", "page", "at", "span", "triggers"}
 SCENE_FIELDS = {"name", "room", "dynamic"}
 SYNC_FIELDS = {"hash"}
 MAX_HASH = 64  # so lang ist die Buchkennung in der Vorlese-App hoechstens
+# Grenzen fuer «span»: Eine Seite ist hoechstens fuenfmal so lang wie eine normale.
+SPAN_MIN, SPAN_MAX = 0.2, 5
 SOUND_TYPES = {".mp3", ".m4a", ".wav", ".aac"}
 MAX_BODY = 1_000_000
 BOOK_LOCK = threading.Lock()  # Vergleichen und Schreiben einer Buchdatei am Stueck
@@ -209,7 +212,7 @@ def format_book(data):
     def compact(value):
         return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
     def ordered(cue):
-        return {k: cue[k] for k in sorted(cue, key=lambda k: CUE_KEY_ORDER.get(k, 6))}
+        return {k: cue[k] for k in sorted(cue, key=lambda k: CUE_KEY_ORDER.get(k, 7))}
 
     fields = []
     for key, value in sorted(data.items(), key=lambda kv: BOOK_KEY_ORDER.get(kv[0], 3)):
@@ -311,7 +314,7 @@ def add_sync_problems(sync, add):
 
 
 def is_end_cue(cue):
-    """Der Schlussmoment: Er kommt, wenn das Buch zugeklappt wird (ADR 0010)."""
+    """Der Schlussmoment: Er kommt, wenn das Buch zugeklappt wird (ADR 0011)."""
     return cue.get("page") == "end"
 
 
@@ -322,19 +325,20 @@ def has_page_number(cue):
 
 
 def add_page_problems(cues, add):
-    """Seitenzahlen (ADR 0008), Positionen innerhalb einer Seite (ADR 0009)
-    und der Schlussmoment (ADR 0010).
+    """Seitenzahlen (ADR 0008), Positionen (ADR 0009), Seitenlaengen (ADR 0010)
+    und der Schlussmoment (ADR 0011).
 
     «page» steigt ueber das Buch hinweg, «at» steigt innerhalb seiner Seite und
-    gehoert zu dem Moment, der keine eigene Seite hat. «page»: «end» gehoert zu
-    keiner Seite und steht als letzter Moment im Buch.
+    gehoert zu dem Moment, der keine eigene Seite hat. «span» sagt, wie lang die
+    Seite gegenueber einer normalen ist, und gehoert deshalb zu «page».
+    «page»: «end» gehoert zu keiner Seite und steht als letzter Moment im Buch.
     """
     has_pages = any(has_page_number(cue) for cue in cues)
     page, position = None, None
     for i, cue in enumerate(cues):
         if "page" in cue:
-            value = cue["page"]
-            if is_end_cue(cue):
+            value, end = cue["page"], is_end_cue(cue)
+            if end:
                 if i != len(cues) - 1:
                     add(i, "der Schlussmoment «end» ist der letzte Moment des Buchs", "when")
             elif not has_page_number(cue) or value < 0:
@@ -345,7 +349,14 @@ def add_page_problems(cues, add):
                 page, position = value, None
             if "at" in cue:
                 add(i, "«at» gehört zu einem Moment ohne «page»", "when")
+            if "span" in cue:
+                if end:
+                    add(i, "«span» gehört zu einer Seite, der Schlussmoment ist keine", "when")
+                else:
+                    add_span_problem(cue["span"], lambda msg: add(i, msg, "when"))
             continue
+        if "span" in cue:
+            add(i, "«span» gehört zu einem Moment mit «page»", "when")
         if "at" not in cue:
             continue
         value = cue["at"]
@@ -359,6 +370,13 @@ def add_page_problems(cues, add):
             add(i, f"«at» muss innerhalb der Seite aufsteigen, {value} steht hinter {position}", "when")
         else:
             position = value
+
+
+def add_span_problem(value, add):
+    """Laenge einer Seite gegenueber einer normalen Seite des Buchs (ADR 0010)."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool) \
+            or not SPAN_MIN <= value <= SPAN_MAX:
+        add(f"«span» muss eine Zahl zwischen {SPAN_MIN} und {SPAN_MAX} sein")
 
 
 def add_scene_problems(scene, scenes, add):
