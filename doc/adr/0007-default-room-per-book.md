@@ -8,6 +8,8 @@ Accepted
 
 Amends 0003, 0006
 
+Amended by 0012
+
 ## Context
 
 The editor picks scenes from the bridge, grouped by room or zone (ADR 0006). The list contains every scene of the home, while a book is normally staged in one room. For each moment, the author scrolls past scenes that will never be chosen, or has to know the scene name to search for it. The problem grows with the number of rooms, not with the size of the book.
