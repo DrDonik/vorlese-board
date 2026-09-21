@@ -307,6 +307,7 @@
 
 <script>
 const FADE = 2.5;          // Sekunden Überblendzeit für Klangteppiche
+const LOOP_GAIN = 0.35;    // Klangteppiche liegen unter den Effekten
 const $ = id => document.getElementById(id);
 
 // ---------- Audio ----------
@@ -350,15 +351,16 @@ const audio = {
     src.connect(gain).connect(this.ctx.destination);
     const t = this.ctx.currentTime;
     gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(1, t + FADE);
+    gain.gain.linearRampToValueAtTime(LOOP_GAIN, t + FADE);
     src.start();
     this.loop = { name, src, gain };
   },
-  playOnce(name) {
+  playOnce(name, level = 1) {
     if (!this.buffers[name]) return null;
-    const src = this.ctx.createBufferSource();
+    const src = this.ctx.createBufferSource(), gain = this.ctx.createGain();
     src.buffer = this.buffers[name];
-    src.connect(this.ctx.destination);
+    gain.gain.value = level;
+    src.connect(gain).connect(this.ctx.destination);
     src.start();
     return src;                         // zum Stoppen der Hörprobe im Editor
   },
@@ -444,8 +446,10 @@ async function go(to, forward) {
 const DB = "https://super-vorlese-app-default-rtdb.europe-west1.firebasedatabase.app";
 const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;      // Alphabet der Lese-Codes der Vorlese-App
 const CODE_STORE = "vorlese-codes";
-// Lesetempo für Momente mitten auf einer Seite (ADR 0009)
+// Lesetempo für Momente mitten auf einer Seite (ADR 0009). Gemessen wird die
+// normale Seite: Jede Umblätterung wird durch die Länge ihrer Seite geteilt (ADR 0010).
 const PACE_SAMPLES = 5, PACE_MIN = 15000, PACE_MAX = 240000, PACE_DEFAULT = 60000;
+const SPAN_MIN = 0.2, SPAN_MAX = 5;
 
 let room = null;    // {code, es, page, state, turns: [ms], pageStart, timer}
 
@@ -517,7 +521,7 @@ function setRoomPage(page) {
   if (page === room.page) return;
   // Nur das Weiterblättern um eine Seite misst das Lesetempo; ein Sprung nicht.
   if (page === room.page + 1 && room.pageStart) {
-    room.turns.push(Date.now() - room.pageStart);
+    room.turns.push((Date.now() - room.pageStart) / spanOf(room.page));
     if (room.turns.length > PACE_SAMPLES) room.turns.shift();
   }
   room.page = page;
@@ -563,6 +567,25 @@ function renderSync() {
 // ---------- Momente mitten auf einer Seite (ADR 0009) ----------
 // Der nächste Moment kommt beim Tippen oder zu seiner geschätzten Zeit — was
 // zuerst eintritt. Ein Umblättern überschreibt beides.
+// Wie lang eine Seite gegenüber einer normalen Seite des Buchs ist (ADR 0010).
+// Das Buch sagt es; fehlt die Angabe oder ist sie verfälscht, gilt die normale Seite.
+function spanOfCue(cue) {
+  const span = cue.span;
+  return typeof span === "number" && span >= SPAN_MIN && span <= SPAN_MAX ? span : 1;
+}
+
+// Beim Bearbeiten misst die Leiste am offenen Buch des Editors mit.
+function spanOf(page) {
+  const b = book || (edit && edit.book);
+  if (!b || typeof page !== "number") return 1;
+  // Von hinten, wie goToPage: Ist eine Seite doppelt vergeben, gilt die Länge des
+  // Moments, auf dem das Umblättern landet. Das Regal meldet so ein Buch ohnehin.
+  for (let k = b.cues.length - 1; k >= 0; k--)
+    if (b.cues[k].page === page) return spanOfCue(b.cues[k]);
+  return 1;
+}
+
+// Sekunden für eine normale Seite, nicht für die gerade offene.
 function pace() {
   if (room.turns.length < 2) return PACE_DEFAULT;
   const sorted = [...room.turns].sort((a, b) => a - b), mid = sorted.length >> 1;
@@ -578,7 +601,8 @@ function armFuse() {
   // woanders, wartet der Moment auf einen Tipp statt auf die falsche Uhr.
   if (at === null || !(at > 0 && at < 1) || pageBefore(book.cues, idx + 1) !== room.page)
     return stopFuse();
-  const total = at * pace(), left = Math.max(total - (Date.now() - room.pageStart), 0);
+  const total = at * spanOf(room.page) * pace();
+  const left = Math.max(total - (Date.now() - room.pageStart), 0);
   room.timer = setTimeout(() => { if (book && room) go(idx + 1, true); }, left);
   runFuse(1 - left / total, left);
 }
@@ -963,6 +987,8 @@ function pageBefore(cues, i) {
 
 const percent = at => Math.round(at * 100) + " %";
 
+const spanText = cue => spanOfCue(cue) === 1 ? "" : ", " + spanOfCue(cue).toFixed(1).replace(".", ",") + " × so lang";
+
 function sceneText(s) {
   return [s.name, s.room, s.dynamic && "dynamisch"].filter(Boolean).join(" · ") || "ungültige Szene";
 }
@@ -984,7 +1010,7 @@ function renderRoom() {
 function fieldText(i, field) {
   const cues = edit.book.cues, cue = cues[i], before = effective(cues, i - 1);
   if (field === "when") {
-    if (typeof cue.page === "number") return { text: "Seite " + cue.page };
+    if (typeof cue.page === "number") return { text: "Seite " + cue.page + spanText(cue) };
     if (typeof cue.at === "number") {
       const page = pageBefore(cues, i);
       return { text: (page === null ? "ohne Seite" : "Seite " + page) + ", bei " + percent(cue.at) };
@@ -1004,7 +1030,7 @@ function fieldText(i, field) {
 
 function summary(cue) {
   const parts = [];
-  if (typeof cue.page === "number") parts.push("Seite " + cue.page);
+  if (typeof cue.page === "number") parts.push("Seite " + cue.page + spanText(cue));
   else if (typeof cue.at === "number") parts.push("bei " + percent(cue.at) + " der Seite");
   if (cue.scene) parts.push(sceneText(cue.scene));
   if ("loop" in cue) parts.push(cue.loop === null ? "Teppich aus" : "Teppich " + cue.loop);
@@ -1232,6 +1258,11 @@ function renderPicker() {
     else
       hint("Ist das Buch mit der Vorlese-App verbunden, steht hier die Seite, die sie gerade zeigt.");
     rows.push(pageRow(cue));
+    if (page !== null) {
+      rows.push(spanRow(page, spanOfCue(cue)));
+      hint("Wie lang diese Seite ist, gegenüber einer normalen Seite des Buchs. "
+         + "Danach richtet sich, wann die Momente mitten auf der Seite kommen.");
+    }
     if (before === null) {
       hint("Ein Moment mitten auf der Seite braucht davor einen Moment mit Seitenzahl.");
     } else {
@@ -1337,12 +1368,34 @@ function atRow(page, pct) {
   return h("div", { className: "pickRow" }, h("span", { textContent: "Anfang — Ende" }), slider, out);
 }
 
+// Länge der Seite, gegenüber einer normalen Seite des Buchs (ADR 0010). Sie steht
+// im Buch, weil nur der Autor sie sieht — das gemessene Tempo kennt sie nicht.
+function spanRow(page, span) {
+  const show = v => v.toFixed(1).replace(".", ",") + " ×";
+  const out = h("span", { className: "pct", textContent: show(span) });
+  const slider = h("input", { type: "range", min: String(SPAN_MIN), max: String(SPAN_MAX),
+    step: "0.1", value: String(span) });
+  slider.setAttribute("aria-label", `Länge von Seite ${page}, gegenüber einer normalen Seite`);
+  slider.addEventListener("input", () => { out.textContent = show(Number(slider.value)); });
+  slider.addEventListener("change", () => pickSpan(Number(slider.value)));
+  return h("div", { className: "pickRow" }, h("span", { textContent: "kurz — lang" }), slider, out);
+}
+
+// Die normale Seite ist der Normalfall und steht darum nicht in der Datei.
+function pickSpan(span) {
+  const cue = edit.book.cues[picker.i];
+  if (span === 1) delete cue.span; else cue.span = span;
+  changed();
+  renderPicker();
+}
+
 // Beides zusammen beantwortet «wann»: Seitenanfang, Position auf der Seite oder gar nichts.
 function pickWhen(when) {
   const cue = edit.book.cues[picker.i];
   delete cue.page;
   delete cue.at;
   if ("page" in when) cue.page = when.page;
+  else delete cue.span;                  // eine Länge hat nur, wer eine Seite hat
   if ("at" in when) cue.at = when.at;
   changed();
   renderPicker();
@@ -1405,7 +1458,8 @@ async function togglePreview(name) {
     p.playing = null;
     $("pickerStatus").textContent = `«${name}» lässt sich nicht abspielen`;
   } else {
-    const src = p.preview = audio.playOnce(name);
+    // Die Probe klingt so laut wie später im Buch, Teppich also gedämpft.
+    const src = p.preview = audio.playOnce(name, p.field === "loop" ? LOOP_GAIN : 1);
     src.onended = () => { if (p.preview === src) { p.playing = null; p.preview = null; if (picker === p) renderPicker(); } };
   }
   renderPicker();
