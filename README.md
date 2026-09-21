@@ -73,7 +73,8 @@ JSON-Fehler mit Zeile). Nach dem Ändern einer Datei genügt es, zum Browser zur
 
 Wird dasselbe Buch in der [Super Vorlese-App](https://drdonik.github.io/super-vorlese-app)
 gelesen, folgt das Board dem Umblättern: beim Vorlesen über die Distanz schaltet es das
-Licht im Kinderzimmer, ohne dass dort jemand tippt (ADR 0008, 0009).
+Licht im Kinderzimmer, ohne dass dort jemand tippt (ADR 0008, 0009). Stellt die App das Buch
+ins Regal, erkennt das Board das Ende und folgt nicht zurück auf Seite 1 (ADR 0010).
 
 1. Im Regal «Mit der Vorlese-App verbinden» wählen und den sechsstelligen Lese-Code eingeben.
    Beim ersten Mal fragt das Board, welches Buch im Regal gemeint ist, und merkt sich das
@@ -87,6 +88,10 @@ Licht im Kinderzimmer, ohne dass dort jemand tippt (ADR 0008, 0009).
 - `at`: Position zwischen 0 und 1 auf der zuletzt genannten Seite. Der Moment kommt beim
   Tippen oder zu seiner geschätzten Zeit, was zuerst eintritt; ein Umblättern überschreibt
   beides. Die Zeit schätzt das Board aus dem Lesetempo des Abends, ein Balken zeigt sie an.
+- `page: "end"`: der Schlussmoment, zum Beispiel ein Nachtlicht und `"loop": null`. Er kommt,
+  wenn die Vorlese-App das Buch zuklappt und ins Regal stellt, und ebenso beim Weitertippen
+  hinter dem letzten Moment. Er steht als letzter Moment im Buch und gehört zu keiner Seite
+  (ADR 0010). Ohne Schlussmoment lässt das Zuklappen Licht und Ton, wie sie sind.
 - `sync.hash`: Kennung des Buchs in der Vorlese-App. Setzt das Board beim Verbinden selbst.
 
 Das Board liest nur mit und schreibt nie in den Raum. Der Lese-Code bleibt pro Buch auf

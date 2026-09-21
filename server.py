@@ -310,19 +310,35 @@ def add_sync_problems(sync, add):
         add("«sync.hash» muss die Kennung des Buchs in der Vorlese-App sein")
 
 
+def is_end_cue(cue):
+    """Der Schlussmoment: Er kommt, wenn das Buch zugeklappt wird (ADR 0010)."""
+    return cue.get("page") == "end"
+
+
+def has_page_number(cue):
+    """Ob der Moment einer Seite der Vorlese-App zugeordnet ist (ADR 0008)."""
+    value = cue.get("page")
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def add_page_problems(cues, add):
-    """Seitenzahlen (ADR 0008) und Positionen innerhalb einer Seite (ADR 0009).
+    """Seitenzahlen (ADR 0008), Positionen innerhalb einer Seite (ADR 0009)
+    und der Schlussmoment (ADR 0010).
 
     «page» steigt ueber das Buch hinweg, «at» steigt innerhalb seiner Seite und
-    gehoert zu dem Moment, der keine eigene Seite hat.
+    gehoert zu dem Moment, der keine eigene Seite hat. «page»: «end» gehoert zu
+    keiner Seite und steht als letzter Moment im Buch.
     """
-    has_pages = any("page" in cue for cue in cues)
+    has_pages = any(has_page_number(cue) for cue in cues)
     page, position = None, None
     for i, cue in enumerate(cues):
         if "page" in cue:
             value = cue["page"]
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                add(i, "«page» muss eine ganze Zahl ab 0 sein", "when")
+            if is_end_cue(cue):
+                if i != len(cues) - 1:
+                    add(i, "der Schlussmoment «end» ist der letzte Moment des Buchs", "when")
+            elif not has_page_number(cue) or value < 0:
+                add(i, "«page» muss eine ganze Zahl ab 0 oder «end» sein", "when")
             elif page is not None and value <= page:
                 add(i, f"«page» muss aufsteigen, Seite {value} steht hinter Seite {page}", "when")
             else:
@@ -555,7 +571,9 @@ class Handler(SimpleHTTPRequestHandler):
                           # Kennung des Buchs in der Vorlese-App: Damit findet ein
                           # Lese-Code das Buch im Regal wieder (ADR 0008).
                           "hash": book_hash if isinstance(book_hash, str) else None,
-                          "pages": any("page" in c for c in data["cues"]),
+                          # Nur echte Seitenzahlen: Der Schlussmoment allein
+                          # laesst ein Buch der Vorlese-App noch nicht folgen.
+                          "pages": any(has_page_number(c) for c in data["cues"]),
                           "problems": [p["text"] for p in book_problems(data, scenes)]})
         return self._json(200, {"books": books, "lights": self.bridge is not None,
                                 "bridge_error": bridge_error, "edit": self._edit_access()})
