@@ -451,7 +451,8 @@ const CODE_STORE = "vorlese-codes";
 const PACE_SAMPLES = 5, PACE_MIN = 15000, PACE_MAX = 240000, PACE_DEFAULT = 60000;
 const SPAN_MIN = 0.2, SPAN_MAX = 5;
 
-let room = null;    // {code, es, page, state, turns: [ms], pageStart, timer}
+// pages = Seitenzahl des Buchs in der App, ended = die App hat es zugeklappt (ADR 0011)
+let room = null;    // {code, es, page, pages, ended, state, turns: [ms], pageStart, timer}
 
 function savedCodes() {
   try { return JSON.parse(localStorage.getItem(CODE_STORE)) || {}; } catch { return {}; }
@@ -476,8 +477,8 @@ function applyBookRoom(id) {
 function connectRoom(code, id) {
   disconnectRoom();
   // bookId merkt sich, zu welchem Buch der Code gehört: Der Editor hat kein offenes Buch.
-  const r = room = { code, bookId: id, es: null, page: null, state: "wait",
-                     turns: [], pageStart: 0, timer: null };
+  const r = room = { code, bookId: id, es: null, page: null, pages: null, ended: false,
+                     state: "wait", turns: [], pageStart: 0, timer: null };
   const es = r.es = new EventSource(roomUrl(code));
   // put: der Stand dieses Pfads. patch: einzelne Felder davon. Alles andere im
   // Raum (Zeiger, Stimmungsrunde, Verbindungsaufbau) geht das Board nichts an.
@@ -488,7 +489,12 @@ function connectRoom(code, id) {
     if (msg.path === "/page") return setRoomPage(msg.data);
     if (msg.path !== "/") return;
     if (whole && msg.data === null) return roomGone();
-    if (msg.data && typeof msg.data === "object") setRoomPage(msg.data.page);
+    if (!msg.data || typeof msg.data !== "object") return;
+    // Wie viele Seiten das Buch in der App hat, steht seit dem Anlegen des Raums
+    // darin. Daran erkennt das Board die letzte Seite und damit das Zuklappen.
+    const pages = msg.data.book?.pageCount;
+    if (typeof pages === "number" && Number.isFinite(pages)) r.pages = pages;
+    setRoomPage(msg.data.page);
   };
   es.addEventListener("put", handle(true));
   es.addEventListener("patch", handle(false));
@@ -519,16 +525,27 @@ function roomGone() {
 function setRoomPage(page) {
   if (typeof page !== "number" || !Number.isFinite(page)) return;
   if (page === room.page) return;
+  // Zuklappen: Die Vorlese-App stellt das Buch ins Regal und blättert dabei von
+  // der letzten Seite auf die erste zurück. Von der letzten Seite aus gibt es
+  // kein anderes Zurück auf Seite 1, deshalb ist der Sprung eindeutig (ADR 0011).
+  const ends = page === 1 && room.pages > 1 && room.page === room.pages;
   // Nur das Weiterblättern um eine Seite misst das Lesetempo; ein Sprung nicht.
   if (page === room.page + 1 && room.pageStart) {
     room.turns.push((Date.now() - room.pageStart) / spanOf(room.page));
     if (room.turns.length > PACE_SAMPLES) room.turns.shift();
   }
+  const reopened = room.ended;        // dasselbe Buch wird gerade neu aufgeschlagen
   room.page = page;
-  room.pageStart = Date.now();
+  // Die Pause zwischen Zuklappen und Wiederaufschlagen ist keine Lesezeit.
+  room.pageStart = ends ? 0 : Date.now();
+  room.ended = ends;
   room.state = "live";
-  if (book) goToPage(page); else renderSync();
+  if (!book) return renderSync();
+  if (ends) goToEnd(); else goToPage(page, reopened);
 }
+
+// Der Schlussmoment gehört zu keiner Seite des Buchs (ADR 0011).
+const isEnd = cue => cue.page === "end";
 
 // Umblättern heisst «ab hier lesen» beim Moment dieser Seite: Zustand herstellen,
 // Einzeleffekte übersprungener Momente bleiben stumm (ADR 0008).
@@ -537,7 +554,11 @@ function setRoomPage(page) {
 // ganz gelesen: Das Board rückt bis an deren letzten Moment. Sonst hinge eine
 // Position dieser Seite (ADR 0009) weiter in der Luft und käme, gemessen ab der
 // neuen Seite, verspätet — obwohl ein Umblättern sie verfallen lässt.
-function goToPage(page) {
+//
+// Nach dem Zuklappen wird jede Seite neu betreten: Wer dasselbe Buch gleich
+// nochmals liest, fängt vorne an, auch wenn das Board dafür in der Liste
+// zurückspringt (ADR 0011).
+function goToPage(page, reopened) {
   const cues = book.cues;
   let to = -1, exact = false;
   for (let k = 0; k < cues.length; k++) {
@@ -545,13 +566,28 @@ function goToPage(page) {
     to = k;
     exact = cues[k].page === page;
   }
+  // Der Schlussmoment gehört keiner Seite, auch nicht der letzten: Umblättern
+  // läuft nie in ihn hinein.
   if (to >= 0 && !exact)
-    while (to + 1 < cues.length && typeof cues[to + 1].page !== "number") to++;
-  if (to === idx) { armFuse(); renderSync(); return; }
+    while (to + 1 < cues.length && typeof cues[to + 1].page !== "number" && !isEnd(cues[to + 1])) to++;
   // Der Einzeleffekt gehört zum Betreten der Seite; zurück bleibt er stumm (ADR 0003).
-  const entry = exact && to > idx ? cues[to] : null;
-  go(to, false);
+  const entry = exact && (to > idx || reopened) ? cues[to] : null;
+  if (to === idx) { armFuse(); renderSync(); } else go(to, false);
   if (entry && entry.oneshot) audio.playOnce(entry.oneshot);
+}
+
+// Das Buch ist zugeklappt. Hat es einen Schlussmoment, kommt er jetzt — wie ein
+// Umblättern auf ihn: Zustand herstellen, sein Einzeleffekt spielt. Sonst bleibt
+// alles, wie es ist; das Board schaltet am Ende von sich aus nichts (ADR 0011).
+function goToEnd() {
+  const last = book.cues.length - 1;
+  const cue = last >= 0 && isEnd(book.cues[last]) ? book.cues[last] : null;
+  if (!cue || last === idx) { armFuse(); renderSync(); }
+  else {
+    go(last, false);
+    if (cue.oneshot) audio.playOnce(cue.oneshot);
+  }
+  status("Die Vorlese-App hat das Buch zugeklappt.");
 }
 
 function renderSync() {
@@ -559,6 +595,7 @@ function renderSync() {
   b.hidden = !book;
   b.textContent = !room ? "Vorlese-App"
     : room.state === "lost" ? "Verbindung weg"
+    : room.ended ? "Ende"
     : room.page === null ? "verbindet …"
     : "Seite " + room.page;
   b.className = !room ? "" : room.state === "lost" ? "warn" : room.page === null ? "" : "live";
@@ -595,7 +632,9 @@ function pace() {
 
 function armFuse() {
   if (room) { clearTimeout(room.timer); room.timer = null; }
-  const next = book && room && room.page !== null ? book.cues[idx + 1] : null;
+  // Beim zugeklappten Buch wartet nichts mehr: Die Lunte bleibt aus, bis jemand
+  // wieder umblättert (ADR 0011).
+  const next = book && room && room.page !== null && !room.ended ? book.cues[idx + 1] : null;
   const at = next && typeof next.at === "number" ? next.at : null;
   // Eine Position gilt nur auf ihrer eigenen Seite. Steht die App längst
   // woanders, wartet der Moment auf einen Tipp statt auf die falsche Uhr.
@@ -740,7 +779,9 @@ function renderRoomDialog() {
   const connected = !!room;
   $("roomTitle").textContent = connected ? "Vorlese-App" : "Mit der Vorlese-App verbinden";
   $("roomHint").textContent = connected
-    ? `Verbunden mit dem Lese-Code ${room.code}. ` + (room.page === null
+    ? `Verbunden mit dem Lese-Code ${room.code}. ` + (room.ended
+        ? "Die App hat das Buch zugeklappt."
+        : room.page === null
         ? "Sobald jemand umblättert, folgt das Board."
         : `Die App ist auf Seite ${room.page}.`)
     : "Den Lese-Code zeigt die Vorlese-App unter «Gemeinsam lesen». "
@@ -1010,6 +1051,7 @@ function renderRoom() {
 function fieldText(i, field) {
   const cues = edit.book.cues, cue = cues[i], before = effective(cues, i - 1);
   if (field === "when") {
+    if (isEnd(cue)) return { text: "wenn zugeklappt" };
     if (typeof cue.page === "number") return { text: "Seite " + cue.page + spanText(cue) };
     if (typeof cue.at === "number") {
       const page = pageBefore(cues, i);
@@ -1030,7 +1072,8 @@ function fieldText(i, field) {
 
 function summary(cue) {
   const parts = [];
-  if (typeof cue.page === "number") parts.push("Seite " + cue.page + spanText(cue));
+  if (isEnd(cue)) parts.push("Schluss");
+  else if (typeof cue.page === "number") parts.push("Seite " + cue.page + spanText(cue));
   else if (typeof cue.at === "number") parts.push("bei " + percent(cue.at) + " der Seite");
   if (cue.scene) parts.push(sceneText(cue.scene));
   if ("loop" in cue) parts.push(cue.loop === null ? "Teppich aus" : "Teppich " + cue.loop);
@@ -1246,8 +1289,11 @@ function renderPicker() {
     const before = pageBefore(edit.book.cues, i);
     const at = typeof cue.at === "number" ? cue.at : null;
     const page = typeof cue.page === "number" ? cue.page : null;
-    const live = room && room.page !== null ? room.page : null;
-    option("Beim Tippen", "ohne Seite", page === null && at === null, () => pickWhen({}));
+    // Beim zugeklappten Buch zeigt die App keine Seite, der sich ein Moment
+    // zuordnen liesse.
+    const live = room && !room.ended && room.page !== null ? room.page : null;
+    option("Beim Tippen", "ohne Seite", page === null && at === null && !isEnd(cue),
+           () => pickWhen({}));
     heading("Zu Beginn einer Seite");
     // Die gewählte Seite bleibt sichtbar, auch wenn die App gerade woanders steht.
     if (page !== null && page !== live)
@@ -1270,6 +1316,15 @@ function renderPicker() {
       const pct = Math.round((at ?? 0.5) * 100);
       option(`Auf Seite ${before}`, "bei " + pct + " %", at !== null, () => pickWhen({ at: pct / 100 }));
       rows.push(atRow(before, pct));
+    }
+    // Der Schlussmoment steht am Ende des Buchs, deshalb steht er nur beim
+    // letzten Moment zur Wahl — und dort, wo er schon gesetzt ist (ADR 0011).
+    if (isEnd(cue) || i === edit.book.cues.length - 1) {
+      heading("Wenn das Buch zugeklappt wird");
+      option("Schlussmoment", isEnd(cue) ? "✓ gewählt" : "kommt auch beim Weitertippen",
+             isEnd(cue), () => pickWhen({ page: "end" }));
+      if (isEnd(cue) && i !== edit.book.cues.length - 1)
+        hint("Der Schlussmoment ist der letzte Moment des Buchs.");
     }
   } else if (field === "room") {
     const cur = bookRoom();
@@ -1395,7 +1450,8 @@ function pickWhen(when) {
   delete cue.page;
   delete cue.at;
   if ("page" in when) cue.page = when.page;
-  else delete cue.span;                  // eine Länge hat nur, wer eine Seite hat
+  // Eine Länge hat nur, wer eine Seite hat: weder «beim Tippen» noch der Schlussmoment.
+  if (typeof cue.page !== "number") delete cue.span;
   if ("at" in when) cue.at = when.at;
   changed();
   renderPicker();

@@ -152,6 +152,24 @@ class WithBridge(unittest.TestCase):
         self.assertEqual(s, 200)
         self.assertGreater(len(json.loads(b)["cues"]), 0)
 
+    def test_closing_moment_alone_does_not_count_as_page_numbers(self):
+        """Das Regal meldet «mit Seitenzahlen» nur, wenn das Buch der App folgen kann."""
+        path = server.BOOKS_DIR / "schluss.json"
+        server.write_book(path, server.format_book({
+            "title": "Mit Schluss",
+            "cues": [{"label": "Ein ruhiger Abend",
+                      "scene": {"name": "Entspannen", "room": "Wohnzimmer"}},
+                     {"label": "Nachtlicht", "page": "end", "loop": None,
+                      "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}}],
+        }))
+        try:
+            book = next(b for b in json.loads(call(self.app + "/api/books")[1])["books"]
+                        if b["id"] == "schluss")
+            self.assertEqual(book["problems"], [])
+            self.assertFalse(book["pages"])
+        finally:
+            path.unlink()
+
     def test_static_and_sounds(self):
         self.assertEqual(call(self.app + "/")[0], 200)
         self.assertEqual(call(self.app + "/sounds/demo-glocke.wav")[0], 200)
@@ -224,6 +242,32 @@ class Pages(unittest.TestCase):
                       self.problems({"label": "a", "page": 1, "span": 9})[0])
         self.assertIn("zwischen 0.2 und 5",
                       self.problems({"label": "a", "page": 1, "span": "lang"})[0])
+
+    def test_closing_moment_accepted_as_the_last_one(self):
+        self.assertEqual(self.problems(
+            {"label": "Wald", "page": 3},
+            {"label": "Nachtlicht", "page": "end"}), [])
+
+    def test_closing_moment_must_be_last(self):
+        self.assertIn("letzte Moment", self.problems(
+            {"label": "Nachtlicht", "page": "end"}, {"label": "Wald", "page": 3})[0])
+        self.assertIn("letzte Moment", self.problems(
+            {"label": "a", "page": "end"}, {"label": "b", "page": "end"})[0])
+
+    def test_closing_moment_has_no_position(self):
+        self.assertIn("ohne «page»", self.problems(
+            {"label": "a", "page": 1}, {"label": "b", "page": "end", "at": 0.5})[0])
+
+    def test_closing_moment_alone_is_no_page_numbering(self):
+        self.assertIn("nur in einem Buch mit Seitenzahlen", self.problems(
+            {"label": "a", "at": 0.5}, {"label": "b", "page": "end"})[0])
+
+    def test_other_page_values_rejected(self):
+        self.assertIn("ganze Zahl", self.problems({"label": "a", "page": "ende"})[0])
+
+    def test_closing_moment_has_no_page_length(self):
+        self.assertIn("der Schlussmoment ist keine", self.problems(
+            {"label": "a", "page": 1}, {"label": "b", "page": "end", "span": 2})[0])
 
     def test_sync_hash_is_text(self):
         self.assertEqual(self.problems({"label": "a"}, sync={"hash": "abc"}), [])
