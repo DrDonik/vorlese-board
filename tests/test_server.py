@@ -177,7 +177,7 @@ class DryRun(unittest.TestCase):
 
 
 class Pages(unittest.TestCase):
-    """Seitenzahlen (ADR 0008) und Positionen innerhalb einer Seite (ADR 0009)."""
+    """Seitenzahlen (ADR 0008), Positionen (ADR 0009), Seitenlaengen (ADR 0010)."""
 
     def problems(self, *cues, **book):
         return [p["text"] for p in server.book_problems({"cues": list(cues), **book})]
@@ -211,6 +211,19 @@ class Pages(unittest.TestCase):
         self.assertIn("ganze Zahl", self.problems({"label": "a", "page": 1.5})[0])
         self.assertIn("zwischen 0 und 1",
                       self.problems({"label": "a", "page": 1}, {"label": "b", "at": 1})[0])
+
+    def test_page_length_belongs_to_a_page(self):
+        self.assertEqual(self.problems(
+            {"label": "Wald", "page": 3, "span": 1.8},
+            {"label": "Ast", "at": 0.6}), [])
+        self.assertIn("gehört zu einem Moment mit «page»", self.problems(
+            {"label": "a", "page": 1}, {"label": "b", "at": 0.5, "span": 2})[0])
+
+    def test_page_length_stays_in_its_bounds(self):
+        self.assertIn("zwischen 0.2 und 5",
+                      self.problems({"label": "a", "page": 1, "span": 9})[0])
+        self.assertIn("zwischen 0.2 und 5",
+                      self.problems({"label": "a", "page": 1, "span": "lang"})[0])
 
     def test_sync_hash_is_text(self):
         self.assertEqual(self.problems({"label": "a"}, sync={"hash": "abc"}), [])
