@@ -891,7 +891,7 @@ $("roomCode").addEventListener("input", () => {
 // Jede Änderung wird sofort gespeichert (ADR 0006). version ist der Dateistand,
 // den der Editor kennt; wurde die Datei inzwischen anders geändert, lehnt der Server ab.
 let edit = null;     // {id, book, version, problems, open, dirty, saving, timer, conflict, deleted}
-let picker = null;   // {i, field, items, error, playing, preview, all, justSet}
+let picker = null;   // {i, field, items, scenes, error, playing, preview, all, justSet, moved}
 let toastTimer = null;
 
 function h(tag, props = {}, ...children) {
@@ -1046,6 +1046,34 @@ function renderRoom() {
   $("edRoomChip").textContent = room || "Alle Räume";
   $("edRoomChip").classList.toggle("keep", !room);
 }
+
+// Räume der Momente: Liegen alle Szenen des Buchs im selben Raum, kann ein neuer
+// Standardraum sie mitnehmen (ADR 0012). room bleibt null, sobald sie sich
+// unterscheiden oder ein Moment gar keinen Raum nennt — dann ist die Mischung gewollt.
+function sceneRooms() {
+  const rooms = edit.book.cues.filter(c => c.scene)
+    .map(c => typeof c.scene.room === "string" ? c.scene.room.trim() : "");
+  const first = rooms[0];
+  return { n: rooms.length, room: first && rooms.every(r => same(r, first)) ? first : null };
+}
+
+// Wie viele Momente ihre Szene im Zielraum nicht wiederfinden. Sie ziehen trotzdem
+// mit, das Regal meldet sie danach als Problem.
+function countMissing(to) {
+  const inRoom = (picker.scenes || []).filter(s => same(s.room, to));
+  return edit.book.cues.filter(c => c.scene && !inRoom.some(s => same(s.name, c.scene.name))).length;
+}
+
+// Vor dem Mitziehen: was der Zielraum schon hat. Danach: was ihm fehlt.
+const hitText = (n, hits, to) =>
+  hits === n ? (n === 1 ? `Sie gibt es auch in «${to}».` : `Alle gibt es auch in «${to}».`)
+  : hits ? `${hits} davon gibt es auch in «${to}».`
+  : n === 1 ? `In «${to}» gibt es sie nicht.` : `In «${to}» gibt es keine davon.`;
+
+const gapText = (n, missing) =>
+  !missing ? ""
+  : missing < n ? ` ${missing} davon gibt es dort nicht.`
+  : n === 1 ? " Es gibt sie dort nicht." : " Es gibt keine davon dort.";
 
 // Text im Feld; «unverändert» und «läuft weiter» nennen, was vom Moment davor weiterwirkt.
 function fieldText(i, field) {
@@ -1228,8 +1256,8 @@ function hideToast() {
 // field «room» wählt den Standardraum des Buchs, die übrigen ein Feld von Moment i.
 async function openPicker(i, field) {
   const light = field === "scene" || field === "room";
-  const p = picker = { i, field, items: null, error: null, playing: null, preview: null,
-                       all: !bookRoom(), justSet: null };
+  const p = picker = { i, field, items: null, scenes: null, error: null, playing: null,
+                       preview: null, all: !bookRoom(), justSet: null, moved: null };
   $("pickerTitle").textContent = field === "room" ? "Standardraum des Buchs"
     : `${{ when: "Wann", scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(edit.book.cues[i], i)}`;
   $("pickerSearch").value = "";
@@ -1248,6 +1276,7 @@ async function openPicker(i, field) {
     p.items = !light ? j.sounds
       : field === "scene" ? j.scenes
       : [...new Set(j.scenes.map(s => s.room))];     // /api/scenes liefert nach Raum sortiert
+    if (field === "room") p.scenes = j.scenes;       // fürs Mitziehen: welche Namen der Zielraum hat
     if (light && !j.lights) p.error = field === "room"
       ? "Trockenmodus: Ohne Bridge sind keine Räume bekannt."
       : "Trockenmodus: Ohne Bridge lassen sich keine Szenen auswählen.";
@@ -1328,6 +1357,7 @@ function renderPicker() {
     }
   } else if (field === "room") {
     const cur = bookRoom();
+    renderRoomLine();
     option("Alle Räume", "keine Vorauswahl", !cur, () => pickRoom(""));
     if (cur && items && !items.some(r => same(r, cur)))
       option(cur, "nicht auf der Bridge", true, () => {}, true);
@@ -1397,6 +1427,55 @@ function renderFilterLine(room, inRoom, filtered) {
     textContent: filtered ? "Alle Räume zeigen" : `Nur «${room}» zeigen`,
     onclick: () => { picker.all = filtered; picker.justSet = null; renderPicker(); },
   }));
+}
+
+// Zeile unter der Suche im Raum-Picker: Sie sagt, wo die Momente spielen, und nimmt
+// sie auf einen Tipp in den Standardraum mit. Sie steht nur, wenn es etwas mitzunehmen
+// gibt: Momente mit Szenen, ein Zielraum, den die Bridge kennt, und er ist nicht schon
+// ihr Raum. Im Trockenmodus kennt sie keinen Raum und schweigt darum.
+function renderRoomLine() {
+  const line = $("pickerFilter"), moved = picker.moved, to = bookRoom();
+  const { n, room } = sceneRooms();
+  const known = !!to && (picker.items || []).some(r => same(r, to));
+  line.hidden = !moved && (!n || !known || (room && same(room, to)));
+  line.replaceChildren();
+  if (line.hidden) return;
+  if (moved) {
+    line.append((moved.n === 1 ? "Der Moment spielt jetzt eine Szene"
+                               : `${moved.n} Momente spielen jetzt Szenen`)
+                + ` aus «${moved.to}».` + gapText(moved.n, moved.missing));
+    line.append(h("button", { textContent: "Rückgängig", onclick: undoMove }));
+    return;
+  }
+  if (!room) return line.append("Die Momente nennen nicht alle denselben Raum und bleiben, wie sie sind.");
+  const missing = countMissing(to);
+  line.append((n === 1 ? "Der Moment spielt eine Szene" : `Die ${n} Momente spielen Szenen`)
+              + ` aus «${room}». ` + hitText(n, n - missing, to));
+  line.append(h("button", {
+    textContent: "Momente mitziehen",
+    onclick: () => moveMoments(to, n, missing),
+  }));
+}
+
+// Alle Momente in den Standardraum mitnehmen: Geschrieben wird nur scene.room, die
+// Szenennamen bleiben. Darum ist der Weg zurück derselbe Schritt mit dem alten Raum.
+function moveMoments(to, n, missing) {
+  const prev = [];
+  edit.book.cues.forEach((cue, i) => {
+    if (!cue.scene) return;
+    prev.push([i, cue.scene.room]);
+    cue.scene.room = to;
+  });
+  picker.moved = { to, n, missing, prev };
+  changed();
+  renderPicker();
+}
+
+function undoMove() {
+  for (const [i, room] of picker.moved.prev) edit.book.cues[i].scene.room = room;
+  picker.moved = null;
+  changed();
+  renderPicker();
 }
 
 // Seitenzahl von Hand, wenn die Vorlese-App gerade nicht verbunden ist.
@@ -1480,6 +1559,7 @@ function pickScene(s) {
 function pickRoom(room) {
   if (room) edit.book.room = room;
   else delete edit.book.room;
+  picker.moved = null;
   changed();
   renderRoom();
   renderPicker();

@@ -33,6 +33,9 @@ Im Editor:
 - Der «Standardraum» unter dem Titel bestimmt, welcher Raum in der Licht-Auswahl zuerst
   erscheint. Die erste gewählte Szene setzt ihn; in der Auswahl lässt sich mit einem Tipp
   auf alle Räume umschalten.
+- Spielen alle Momente im selben Raum, nimmt ein neuer Standardraum sie auf einen Tipp mit:
+  Die Auswahl sagt, wie viele der Szenen es im neuen Raum schon gibt, und lässt sich
+  rückgängig machen. Die Szenennamen bleiben, nur `scene.room` wird neu geschrieben.
 - «Ab hier probelesen» springt in den Lesemodus, mit Licht und Klang wie vor diesem Moment.
 - Jede Änderung ist sofort gespeichert. Neue Sounds in `sounds/` legen, sie erscheinen gleich in der Auswahl.
 
@@ -54,8 +57,8 @@ von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liege
         { "label": "Gute Nacht", "page": 9, "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
           "triggers": ["gute Nacht"] } ] }
 
-- `room`: Standardraum des Buchs. Er filtert nur die Auswahl im Editor; welche Szene ein
-  Moment schaltet, steht immer in dessen `scene.room`.
+- `room`: Standardraum des Buchs. Er filtert nur die Auswahl im Editor und kann die Momente
+  auf Wunsch mitnehmen; welche Szene ein Moment schaltet, steht immer in dessen `scene.room`.
 - `page`, `at`, `span`, `sync`: nur für das Mitlesen mit der Vorlese-App, siehe unten.
 - `scene`: Name exakt wie in der Hue-App (Gross-/Kleinschreibung egal); `room` nötig, wenn der
   Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
