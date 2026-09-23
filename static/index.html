@@ -448,11 +448,14 @@ const CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;      // Alphabet der Lese-Codes der Vorle
 const CODE_STORE = "vorlese-codes";
 // Lesetempo für Momente mitten auf einer Seite (ADR 0009). Gemessen wird die
 // normale Seite: Jede Umblätterung wird durch die Länge ihrer Seite geteilt (ADR 0010).
-const PACE_SAMPLES = 5, PACE_MIN = 15000, PACE_MAX = 240000, PACE_DEFAULT = 60000;
+// Unter PACE_GLANCE war eine Seite nur überflogen, nicht gelesen (ADR 0013).
+const PACE_SAMPLES = 7, PACE_MIN = 15000, PACE_MAX = 240000, PACE_DEFAULT = 60000;
+const PACE_GLANCE = 10000;
 const SPAN_MIN = 0.2, SPAN_MAX = 5;
 
 // pages = Seitenzahl des Buchs in der App, ended = die App hat es zugeklappt (ADR 0011)
-let room = null;    // {code, es, page, pages, ended, state, turns: [ms], pageStart, timer}
+// straight = die offene Seite wurde von der Seite davor aus aufgeschlagen (ADR 0013)
+let room = null;    // {code, es, page, pages, ended, state, turns: [ms], pageStart, straight, timer}
 
 function savedCodes() {
   try { return JSON.parse(localStorage.getItem(CODE_STORE)) || {}; } catch { return {}; }
@@ -478,7 +481,7 @@ function connectRoom(code, id) {
   disconnectRoom();
   // bookId merkt sich, zu welchem Buch der Code gehört: Der Editor hat kein offenes Buch.
   const r = room = { code, bookId: id, es: null, page: null, pages: null, ended: false,
-                     state: "wait", turns: [], pageStart: 0, timer: null };
+                     state: "wait", turns: [], pageStart: 0, straight: false, timer: null };
   const es = r.es = new EventSource(roomUrl(code));
   // put: der Stand dieses Pfads. patch: einzelne Felder davon. Alles andere im
   // Raum (Zeiger, Stimmungsrunde, Verbindungsaufbau) geht das Board nichts an.
@@ -529,12 +532,20 @@ function setRoomPage(page) {
   // der letzten Seite auf die erste zurück. Von der letzten Seite aus gibt es
   // kein anderes Zurück auf Seite 1, deshalb ist der Sprung eindeutig (ADR 0011).
   const ends = page === 1 && room.pages > 1 && room.page === room.pages;
-  // Nur das Weiterblättern um eine Seite misst das Lesetempo; ein Sprung nicht.
-  if (page === room.page + 1 && room.pageStart) {
-    room.turns.push((Date.now() - room.pageStart) / spanOf(room.page));
-    if (room.turns.length > PACE_SAMPLES) room.turns.shift();
+  // Nur eine geradeaus gelesene Seite misst das Lesetempo (ADR 0013): betreten
+  // von der Seite davor, verlassen zur Seite danach. Zurückblättern, Springen und
+  // der Einstieg beim Verbinden liefern keine ganze Seite. Überflogene Seiten und
+  // solche an der Untergrenze der Länge sagen über das Tempo nichts Verlässliches.
+  const forward = room.page !== null && page === room.page + 1;
+  if (forward && room.straight) {
+    const spent = Date.now() - room.pageStart, span = spanOf(room.page);
+    if (spent >= PACE_GLANCE && span > SPAN_MIN) {
+      room.turns.push(spent / span);
+      if (room.turns.length > PACE_SAMPLES) room.turns.shift();
+    }
   }
   const reopened = room.ended;        // dasselbe Buch wird gerade neu aufgeschlagen
+  room.straight = forward;
   room.page = page;
   // Die Pause zwischen Zuklappen und Wiederaufschlagen ist keine Lesezeit.
   room.pageStart = ends ? 0 : Date.now();
