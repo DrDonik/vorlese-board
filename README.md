@@ -6,7 +6,8 @@ beim Lesen tippt man nur «weiter».
 ## Einrichten (einmalig, auf dem Mac)
 
     python3 server.py --pair     # Bridge-IP eingeben, Knopf auf der Bridge drücken
-    python3 server.py --scenes   # zeigt alle Hue-Szenen mit Raum
+    python3 server.py --scenes   # zeigt alle Hue-Szenen mit Raum und mittlerer Helligkeit
+    python3 server.py --scenes Mondlicht   # dazu jede Lampe der Szene mit Helligkeit und Farbe
     python3 server.py --pin      # PIN (6 Ziffern) zum Bearbeiten auf iPad und iPhone
 
 Ohne `--pair` läuft alles im Trockenmodus: Sounds spielen, Szenen erscheinen nur im Terminal.

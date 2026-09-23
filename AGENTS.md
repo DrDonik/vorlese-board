@@ -13,7 +13,7 @@ This web app's purpose is to accompany story reading for kids with light and sou
 9. All new code will be carefully reviewed by an expert for correctness, security, edge cases, maintainability, and fit with the existing codebase. Implement with a goal of a single positive review and no iterations needed.
 
 # Secrets
-`config.json` contains the Hue bridge app key in plain text and is git-ignored. Never read, print, grep, or otherwise open it, not even partially. To learn whether the app is paired, rely on the server's startup output ("mit Bridge" / "Trockenmodus"). Use a placeholder like `{"bridge_ip": "192.168.x.x", "app_key": "<key>"}` when its format matters.
+`config.json` contains the Hue bridge app key in plain text and is git-ignored. Never read, print, grep, or otherwise open it yourself, not even partially. To reach the bridge, run code that loads it through `load_config()` and `make_bridge()` in `server.py` (e.g. `python3 server.py --scenes [Name]`, which shows each scene's brightness and colours). Such code must never print, log, or return the key or the whole config. To learn whether the app is paired, rely on the server's startup output ("mit Bridge" / "Trockenmodus"). Use a placeholder like `{"bridge_ip": "192.168.x.x", "app_key": "<key>"}` when its format matters.
 
 # Pull Requests
 Write the body in German as usual, but trigger auto-closing of issues with an English keyword: GitHub only auto-closes on `Closes #123` / `Fixes #123` / `Resolves #123`. Therefore: Name every issue the PR finishes on its own `Closes` line at the end of the body; the German prose above it may still explain what was fixed.

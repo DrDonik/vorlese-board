@@ -4,7 +4,8 @@
 Nur Python-Standardbibliothek. Start:
     python3 server.py            # Server auf Port 8765
     python3 server.py --pair     # einmalig: App-Key von der Bridge holen
-    python3 server.py --scenes   # alle Hue-Szenen mit Raum auflisten
+    python3 server.py --scenes   # alle Hue-Szenen mit Raum und mittlerer Helligkeit
+    python3 server.py --scenes Mondlicht   # dazu jede Lampe mit Helligkeit und Farbe
     python3 server.py --pin      # PIN zum Bearbeiten von iPad und iPhone setzen
 
 Ohne config.json laeuft der Server im Trockenmodus: Szenenaufrufe werden
@@ -133,6 +134,14 @@ class Bridge:
                 for s in self._request("GET", "/clip/v2/resource/scene")["data"]]
         return self._scene_cache
 
+    def scene_lights(self):
+        """Pro Szenen-ID die Lampen der Szene als Paare (Lampenname, Einstellung)."""
+        lights = {l["id"]: l["metadata"]["name"]
+                  for l in self._request("GET", "/clip/v2/resource/light")["data"]}
+        return {s["id"]: sorted(((lights.get(a["target"]["rid"], "?"), a["action"])
+                                 for a in s["actions"]), key=lambda pair: pair[0])
+                for s in self._request("GET", "/clip/v2/resource/scene")["data"]}
+
     def resolve(self, name, room=None):
         matches = find_scenes(self.scenes(), name, room)
         if not matches:  # seit dem letzten Abruf angelegt oder umbenannt?
@@ -169,6 +178,45 @@ def scene_problem(matches, name, room=None):
         return (f"Szene «{name}» gibt es in mehreren Räumen oder Zonen "
                 f"({', '.join(rooms)}), bitte «room» angeben")
     return f"Szene «{name}» gibt es in «{rooms[0]}» mehrfach, bitte in der Hue-App umbenennen"
+
+
+def light_brightness(action):
+    """Helligkeit einer Lampe in einer Szene in Prozent; aus ist 0, ohne Dimmer 100."""
+    if not action.get("on", {}).get("on", True):
+        return 0
+    return action.get("dimming", {}).get("brightness", 100)
+
+
+def describe_light(action):
+    """Einstellung einer Lampe in einer Szene, z. B. «45 %, 2700 K» oder «aus»."""
+    if not action.get("on", {}).get("on", True):
+        return "aus"
+    parts = [f"{light_brightness(action):.0f} %"]
+    mirek = action.get("color_temperature", {}).get("mirek")
+    xy = action.get("color", {}).get("xy")
+    if mirek:
+        parts.append(f"{round(1_000_000 / mirek, -2):.0f} K")
+    elif xy:
+        parts.append(f"Farbe x={xy['x']:.3f} y={xy['y']:.3f}")
+    return ", ".join(parts)
+
+
+def list_scenes(bridge, name=None):
+    """Szenen mit mittlerer Helligkeit auflisten; mit Namen zusaetzlich jede Lampe einzeln."""
+    scenes = sorted(bridge.scenes(), key=lambda s: (s["room"], s["name"]))
+    if name is not None:
+        scenes = find_scenes(scenes, name)
+        if not scenes:
+            sys.exit(f"Szene «{name}» nicht gefunden")
+    lights = bridge.scene_lights()
+    for s in scenes:
+        actions = [action for _, action in lights.get(s["id"], [])]
+        mean = (f"Ø {sum(map(light_brightness, actions)) / len(actions):3.0f} %"
+                if actions else "keine Lampen")
+        print(f"{s['room']:<20} {s['name']:<28} {mean}")
+        if name is not None:
+            for light, action in lights.get(s["id"], []):
+                print(f"    {light:<28} {describe_light(action)}")
 
 
 def valid_book_id(book_id):
@@ -697,9 +745,8 @@ def main():
     if "--scenes" in sys.argv:
         if not bridge:
             sys.exit("Keine config.json. Zuerst: python3 server.py --pair")
-        for s in sorted(bridge.scenes(), key=lambda s: (s["room"], s["name"])):
-            print(f"{s['room']:<20} {s['name']}")
-        return
+        rest = sys.argv[sys.argv.index("--scenes") + 1:]
+        return list_scenes(bridge, rest[0] if rest else None)
     BOOKS_DIR.mkdir(exist_ok=True)
     SOUNDS_DIR.mkdir(exist_ok=True)
     Handler.bridge = bridge
