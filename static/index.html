@@ -437,12 +437,12 @@ const flashFits = (f, back) =>
   typeof f.room !== "string" || typeof back.room !== "string" || same(f.room, back.room);
 
 // back: die Szene, zu der der Blitz zurückkehrt. Ohne sie oder in einem anderen
-// Raum bliebe der Raum des Blitzes stehen, deshalb bleibt er dann aus; das Regal
-// meldet so ein Buch. Die Dauer zählt ab dem Moment, in dem die Bridge den Blitz
-// geschaltet hat.
+// Raum bliebe der Raum des Blitzes stehen, deshalb bleibt er dann aus und es gilt
+// gleich das Licht dieser Stelle; das Regal meldet so ein Buch. Die Dauer zählt
+// ab dem Moment, in dem die Bridge den Blitz geschaltet hat.
 async function playFlash(f, back, report = status) {
   endFlash();
-  if (!back || !flashFits(f, back)) return;
+  if (!back || !flashFits(f, back)) return setScene(back, report);
   const run = flash = { back, timer: null };
   await setScene({ name: f.name, room: f.room }, report, FLASH_IN);
   if (flash !== run) return;
