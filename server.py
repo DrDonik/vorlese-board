@@ -746,6 +746,9 @@ def main():
         if not bridge:
             sys.exit("Keine config.json. Zuerst: python3 server.py --pair")
         rest = sys.argv[sys.argv.index("--scenes") + 1:]
+        if len(rest) > 1:
+            sys.exit("Nur ein Szenenname, mit Leerzeichen in Anführungszeichen: "
+                     'python3 server.py --scenes "Sonnenuntergang Savanne"')
         return list_scenes(bridge, rest[0] if rest else None)
     BOOKS_DIR.mkdir(exist_ok=True)
     SOUNDS_DIR.mkdir(exist_ok=True)
