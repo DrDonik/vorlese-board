@@ -315,6 +315,21 @@ class Flashes(unittest.TestCase):
             {"label": "Schrei", "flash": {"name": "Blutrot"}},
             {"label": "Nacht", "scene": self.LIGHT})[0])
 
+    def test_flash_returns_only_in_its_own_room(self):
+        self.assertIn("in «Kinderzimmer», das Licht", self.problems(
+            {"label": "a", "scene": self.LIGHT},
+            {"label": "b", "flash": {"name": "Nachtlicht", "room": "Kinderzimmer"}})[0])
+        self.assertEqual(self.problems(
+            {"label": "a", "scene": self.LIGHT},
+            {"label": "b", "flash": {"name": "Blutrot", "room": "wohnzimmer"}}), [])
+
+    def test_flash_room_comes_from_the_bridge_when_unnamed(self):
+        scenes = [{"name": "Nachtlicht", "room": "Wohnzimmer"},
+                  {"name": "Blutrot", "room": "Kinderzimmer"}]
+        cues = [{"label": "a", "scene": self.LIGHT}, {"label": "b", "flash": {"name": "Blutrot"}}]
+        texts = [p["text"] for p in server.book_problems({"cues": cues}, scenes)]
+        self.assertIn("in «Kinderzimmer», das Licht", texts[0])
+
     def test_flash_length_stays_in_its_bounds(self):
         for seconds in (0.5, 11, "2", True):
             self.assertIn("zwischen 1 und 10", self.problems(

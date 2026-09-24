@@ -430,12 +430,19 @@ let flash = null;                          // {back, timer}, solange ein Blitz l
 const flashSeconds = f => typeof f.seconds === "number" && f.seconds >= FLASH_MIN
   && f.seconds <= FLASH_MAX ? f.seconds : FLASH_DEFAULT;
 
-// back: die Szene, zu der der Blitz zurückkehrt. Ohne sie bliebe der Raum im
-// Blitz stehen, deshalb bleibt er dann aus; das Regal meldet so ein Buch.
-// Die Dauer zählt ab dem Moment, in dem die Bridge den Blitz geschaltet hat.
+// Ein Blitz kehrt nur im eigenen Raum zurück; ein anderer Raum bliebe im Blitz
+// stehen. Fehlt eine Raumangabe, kennt nur die Bridge den Raum, und das Regal
+// meldet eine Abweichung.
+const flashFits = (f, back) =>
+  typeof f.room !== "string" || typeof back.room !== "string" || same(f.room, back.room);
+
+// back: die Szene, zu der der Blitz zurückkehrt. Ohne sie oder in einem anderen
+// Raum bliebe der Raum des Blitzes stehen, deshalb bleibt er dann aus; das Regal
+// meldet so ein Buch. Die Dauer zählt ab dem Moment, in dem die Bridge den Blitz
+// geschaltet hat.
 async function playFlash(f, back, report = status) {
   endFlash();
-  if (!back) return;
+  if (!back || !flashFits(f, back)) return;
   const run = flash = { back, timer: null };
   await setScene({ name: f.name, room: f.room }, report, FLASH_IN);
   if (flash !== run) return;
@@ -1485,9 +1492,13 @@ function renderPicker() {
       const back = effective(edit.book.cues, i).scene;
       option("Kein Blitz", "", !cur, () => pickFlash(null));
       rows.push(secondsRow(cur));
+      const where = typeof back?.room === "string" ? ` in «${back.room}»` : "";
       hint(!back ? "Vor diesem Moment gibt es noch kein Licht, zu dem ein Blitz zurückkehren kann."
-        : cur ? `Nach ${secondsText(flashSeconds(cur))} zurück zu ${back.name}.`
-        : `Danach zurück zu ${back.name}.`);
+        : cur && !flashFits(cur, back)
+        ? `Das Licht, zu dem der Blitz zurückkehrt, ist ${back.name}${where}. Ein Blitz aus «${cur.room}» `
+          + "bliebe dort stehen und bleibt deshalb aus. Eine Szene aus demselben Raum wählen."
+        : cur ? `Nach ${secondsText(flashSeconds(cur))} zurück zu ${back.name}${where}.`
+        : `Danach zurück zu ${back.name}${where}. Der Blitz braucht eine Szene aus demselben Raum.`);
     }
     // Was der Moment schaltet, bleibt sichtbar, auch wenn Filter oder Suche es ausblenden.
     if (cur && items && !shown.some(isCur))

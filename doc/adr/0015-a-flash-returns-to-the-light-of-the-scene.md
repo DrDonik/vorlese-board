@@ -57,10 +57,14 @@ A moment gets an optional field `flash`, next to `scene`:
 - **Taking the moments along** to a new default room (0012) moves the room of
   their flashes as well. A book whose flashes play in another room than its
   scenes is mixed and is not offered the move.
+- **A flash plays in the room of the light it returns to.** The return recalls
+  the light of the scene, so a flash in another room would leave that room in the
+  flash. The flash picker names the room of that light.
 - **Shelf check.** The shelf reports a flash with an unknown scene, a length
-  outside 1 to 10 seconds, and a flash before any moment has set a light, because
-  such a flash has nothing to return to. Neither reading nor the editor plays such
-  a flash, so that the room is never left in it.
+  outside 1 to 10 seconds, a flash before any moment has set a light, and a flash
+  in another room than that light. A scene without `room` gets its room from the
+  bridge. Neither reading nor the editor plays a flash that has nothing to return
+  to or that names another room, so that no room is left in a flash.
 
 ## Consequences
 
@@ -71,6 +75,12 @@ A moment gets an optional field `flash`, next to `scene`:
 - Two recalls within one second can be dropped by the bridge. The minimum length
   of one second avoids this for a single flash. A moment that follows a flash
   within a second can still lose the return; the next light change repairs it.
+- A book with scenes in several rooms can flash only in the room of the current
+  light. Returning to the last light of each room would allow more, but needs the
+  room of every scene without `room` from the bridge, and no book needs it yet.
+- The reading device only knows the rooms a book names. If the flash or the light
+  leaves out `room` and the two lie in different rooms, the flash still plays; the
+  shelf reports it.
 - The return timer lives on the reading device. If the device sleeps during a
   flash, the return comes when it wakes up.
 - The board sends scene recalls one at a time and in order, and drops a waiting

@@ -286,7 +286,7 @@ def book_problems(data, scenes=None):
     if "sync" in data:
         add_sync_problems(data["sync"], book_problem)
     add_page_problems(cues, cue_problem)
-    lit = False  # ob bis hierher ein Moment Licht gesetzt hat, zu dem ein Blitz zurueckkehrt
+    back = None  # das Licht bis hierher, zu dem ein Blitz zurueckkehrt
     for i, cue in enumerate(cues):
         label = cue.get("label")
         has_label = isinstance(label, str) and label.strip()
@@ -300,9 +300,9 @@ def book_problems(data, scenes=None):
             add(f"unbekanntes Feld «{key}»", None)
         if "scene" in cue:
             add_scene_problems(cue["scene"], scenes, lambda msg: add(msg, "scene"))
-            lit = True
+            back = cue["scene"]
         if "flash" in cue:
-            add_flash_problems(cue["flash"], scenes, lit, lambda msg: add(msg, "flash"))
+            add_flash_problems(cue["flash"], scenes, back, lambda msg: add(msg, "flash"))
         if "loop" in cue and cue["loop"] is not None:
             add_sound_problem(cue["loop"], "loop", lambda msg: add(msg, "loop"))
         if "oneshot" in cue:
@@ -408,8 +408,27 @@ def add_scene_problems(scene, scenes, add, field="scene", fields=SCENE_FIELDS):
             add(problem)
 
 
-def add_flash_problems(flash, scenes, lit, add):
-    """Blitz (ADR 0015): eine Szene fuer kurze Zeit, danach zurueck zum Licht davor."""
+def scene_room(scene, scenes):
+    """Raum einer Szene: der genannte, sonst der ihres einzigen Treffers auf der Bridge.
+
+    None, wenn er sich nicht sagen laesst: ohne Bridge oder bei einer Szene, die das
+    Regal ohnehin als unbekannt oder mehrdeutig meldet.
+    """
+    if not isinstance(scene, dict):
+        return None
+    if isinstance(scene.get("room"), str):
+        return scene["room"]
+    if scenes is None or not isinstance(scene.get("name"), str):
+        return None
+    rooms = {s["room"] for s in find_scenes(scenes, scene["name"])}
+    return rooms.pop() if len(rooms) == 1 else None
+
+
+def add_flash_problems(flash, scenes, back, add):
+    """Blitz (ADR 0015): eine Szene fuer kurze Zeit, danach zurueck zum Licht davor.
+
+    Er kehrt nur im eigenen Raum zurueck; in einem anderen bliebe dieser im Blitz stehen.
+    """
     add_scene_problems(flash, scenes, add, "flash", FLASH_FIELDS)
     if not isinstance(flash, dict):
         return
@@ -417,8 +436,11 @@ def add_flash_problems(flash, scenes, lit, add):
     if "seconds" in flash and (not isinstance(seconds, (int, float)) or isinstance(seconds, bool)
                                or not FLASH_MIN <= seconds <= FLASH_MAX):
         add(f"«flash.seconds» muss eine Zahl zwischen {FLASH_MIN} und {FLASH_MAX} sein")
-    if not lit:
-        add("Der Blitz braucht davor ein Licht, zu dem er zurückkehrt")
+    if back is None:
+        return add("Der Blitz braucht davor ein Licht, zu dem er zurückkehrt")
+    here, there = scene_room(flash, scenes), scene_room(back, scenes)
+    if here is not None and there is not None and here.lower() != there.lower():
+        add(f"Der Blitz spielt in «{here}», das Licht, zu dem er zurückkehrt, in «{there}»")
 
 
 def add_sound_problem(name, key, add):
