@@ -42,8 +42,9 @@ A moment gets an optional field `flash`, next to `scene`:
   `scene`. A moment with both first flashes and then settles into its new scene:
   a scream, then darkness.
 - **A flash is not state.** The cumulative state ignores it, so "Back", "Ab hier
-  probelesen" and a page turn from the Vorlese-App never play it again, just like
-  a one-shot.
+  probelesen" and a page turn that skips a moment never play its flash, just like
+  its one-shot. A page turn onto the moment's own page and the closing moment play
+  both, as they already play the one-shot (0008, 0011).
 - **Anything that sets the light ends a running flash.** The next moment, "Back",
   a page turn or the closing moment discards the pending return, and the light of
   the new position applies at once. Leaving the reading view during a flash
@@ -53,6 +54,9 @@ A moment gets an optional field `flash`, next to `scene`:
   It opens the same scene picker as «Licht», with chips for the length
   (1 · 2 · 4 · 8 s). Choosing a scene plays the flash in the room, including the
   return to the light of this moment.
+- **Taking the moments along** to a new default room (0012) moves the room of
+  their flashes as well. A book whose flashes play in another room than its
+  scenes is mixed and is not offered the move.
 - **Shelf check.** The shelf reports a flash with an unknown scene, a length
   outside 1 to 10 seconds, and a flash before any moment has set a light, because
   such a flash has nothing to return to.

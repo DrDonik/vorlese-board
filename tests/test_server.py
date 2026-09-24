@@ -128,6 +128,16 @@ class WithBridge(unittest.TestCase):
         call(self.app + "/api/scene", "POST", {"name": "Entspannen", "dynamic": True})
         self.assertEqual(MockBridge.recalls[0][1], {"recall": {"action": "dynamic_palette"}})
 
+    def test_recall_with_transition(self):
+        call(self.app + "/api/scene", "POST", {"name": "Entspannen", "duration": 0})
+        self.assertEqual(MockBridge.recalls[0][1], {"recall": {"action": "active", "duration": 0}})
+
+    def test_transition_must_be_milliseconds(self):
+        for duration in (-1, 1.5, True, "0", 60_001):
+            s, _ = call(self.app + "/api/scene", "POST", {"name": "Entspannen", "duration": duration})
+            self.assertEqual(s, 400, duration)
+        self.assertEqual(MockBridge.recalls, [])
+
     def test_ambiguous_scene_rejected(self):
         s, b = call(self.app + "/api/scene", "POST", {"name": "Nachtlicht"})
         self.assertEqual(s, 404)
@@ -280,6 +290,51 @@ class Pages(unittest.TestCase):
                                    "sync": {"hash": "abc"}, "title": "T"})
         self.assertIn('{"label": "Ast", "at": 0.5, "oneshot": "x.wav"}', text)
         self.assertLess(text.index('"sync"'), text.index('"cues"'))
+
+
+class Flashes(unittest.TestCase):
+    """Blitze (ADR 0015)."""
+
+    LIGHT = {"name": "Nachtlicht", "room": "Wohnzimmer"}
+
+    def problems(self, *cues):
+        return [p["text"] for p in server.book_problems({"cues": list(cues)})]
+
+    def test_flash_after_a_light_accepted(self):
+        self.assertEqual(self.problems(
+            {"label": "Nacht", "scene": self.LIGHT},
+            {"label": "Schrei", "flash": {"name": "Blutrot", "seconds": 2}},
+            {"label": "Lachen", "flash": {"name": "Blutrot", "room": "Wohnzimmer"}}), [])
+
+    def test_flash_returns_to_the_light_of_its_own_moment(self):
+        self.assertEqual(self.problems(
+            {"label": "Schrei", "scene": self.LIGHT, "flash": {"name": "Blutrot"}}), [])
+
+    def test_flash_needs_a_light_to_return_to(self):
+        self.assertIn("braucht davor ein Licht", self.problems(
+            {"label": "Schrei", "flash": {"name": "Blutrot"}},
+            {"label": "Nacht", "scene": self.LIGHT})[0])
+
+    def test_flash_length_stays_in_its_bounds(self):
+        for seconds in (0.5, 11, "2", True):
+            self.assertIn("zwischen 1 und 10", self.problems(
+                {"label": "a", "scene": self.LIGHT},
+                {"label": "b", "flash": {"name": "Blutrot", "seconds": seconds}})[0], seconds)
+
+    def test_flash_has_no_dynamic(self):
+        self.assertIn("«flash.dynamic»", self.problems(
+            {"label": "a", "scene": self.LIGHT},
+            {"label": "b", "flash": {"name": "Blutrot", "dynamic": True}})[0])
+
+    def test_flash_needs_a_name(self):
+        self.assertIn("«flash.name»", self.problems(
+            {"label": "a", "scene": self.LIGHT}, {"label": "b", "flash": {"seconds": 2}})[0])
+
+    def test_flash_stands_next_to_the_light(self):
+        text = server.format_book({"cues": [{"loop": "x.wav", "flash": {"name": "Blutrot"},
+                                             "scene": self.LIGHT, "label": "a"}]})
+        self.assertLess(text.index('"scene"'), text.index('"flash"'))
+        self.assertLess(text.index('"flash"'), text.index('"loop"'))
 
 
 if __name__ == "__main__":

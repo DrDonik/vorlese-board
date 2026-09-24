@@ -172,6 +172,11 @@
   .pickRow input[type=number] { width: 6rem; }
   .pickRow input[type=range] { flex: 1; min-width: 8rem; height: 2.75rem; accent-color: var(--lamp); }
   .pickRow .pct { min-width: 3rem; text-align: right; font-size: .95rem; }
+  .pickRow.durations { flex-wrap: wrap; gap: .5rem; }
+  .pickRow.durations > span:first-child { margin-right: .25rem; }
+  .pickRow .chip { min-width: 3.25rem; text-align: center; }
+  .pickRow .chip[aria-pressed=true] { background: var(--dusk); border-color: var(--lamp); }
+  .pickRow .chip:disabled { color: var(--line); }
 
   /* Verbindung zur Vorlese-App */
   #roomDialog .sheet { max-width: 26rem; }
@@ -387,12 +392,13 @@ function effective(cues, i) {
   return { scene, loop };
 }
 
-async function setScene(scene, report = status) {
+// duration: Übergang in ms; ohne Angabe blendet die Bridge wie gewohnt über.
+async function setScene(scene, report = status, duration = null) {
   if (!scene) return;
   try {
     const r = await fetch("/api/scene", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(scene),
+      body: JSON.stringify(duration === null ? scene : { ...scene, duration }),
     });
     const j = await r.json();
     if (!r.ok) report(j.error || "Szene nicht gesetzt");
@@ -400,6 +406,47 @@ async function setScene(scene, report = status) {
 }
 
 function status(msg) { $("status").textContent = msg || ""; }
+
+// ---------- Blitz (ADR 0015) ----------
+// Ein Blitz ist Stimmung, kein Licht der Geschichte: Er schaltet hart auf seine
+// Szene und kehrt nach seiner Dauer weich zum Licht der Szene zurück. Er gehört
+// nicht zum Zustand, deshalb kennt effective() ihn nicht.
+const FLASH_MIN = 1, FLASH_MAX = 10, FLASH_DEFAULT = 2;
+const FLASH_CHOICES = [1, 2, 4, 8];
+const FLASH_IN = 0, FLASH_OUT = 1000;     // Übergänge in ms
+let flash = null;                          // {back, timer}, solange ein Blitz läuft
+
+const flashSeconds = f => typeof f.seconds === "number" && f.seconds >= FLASH_MIN
+  && f.seconds <= FLASH_MAX ? f.seconds : FLASH_DEFAULT;
+
+// back: die Szene, zu der der Blitz zurückkehrt; null, wenn es noch keine gibt.
+function playFlash(f, back, report = status) {
+  endFlash();
+  const shown = setScene({ name: f.name, room: f.room }, report, FLASH_IN);
+  const run = flash = { back, timer: setTimeout(async () => {
+    await shown;                           // die Rückkehr darf den Blitz nicht überholen
+    if (flash !== run) return;
+    flash = null;
+    setScene(back, report, FLASH_OUT);
+  }, flashSeconds(f) * 1000) };
+}
+
+// Beendet einen laufenden Blitz ohne Rückkehr und nennt die Szene, zu der er
+// zurückgekehrt wäre. Wer das Licht danach selbst setzt, braucht sie nicht.
+function endFlash() {
+  if (!flash) return null;
+  clearTimeout(flash.timer);
+  const back = flash.back;
+  flash = null;
+  return back;
+}
+
+// Beim Verlassen des Lesemodus kehrt ein laufender Blitz sofort zurück: Der Raum
+// bleibt nie im Blitz stehen.
+function finishFlash() {
+  const back = endFlash();
+  if (back) setScene(back);
+}
 
 function render() {
   const cues = book.cues, cur = cues[idx], nxt = cues[idx + 1];
@@ -425,11 +472,17 @@ async function go(to, forward) {
   status("");
   idx = to;
   turn(); render();
-  if (idx < 0) { audio.fadeOutLoop(); return; }
+  // Alles, was das Licht setzt, beendet einen laufenden Blitz. Ohne eigenes
+  // Licht kehrt er sofort zurück.
+  const flashing = endFlash();
+  if (idx < 0) { audio.fadeOutLoop(); setScene(flashing); return; }
   const cue = book.cues[idx];
   if (forward) {
     if (cue.oneshot) audio.playOnce(cue.oneshot);
-    if (cue.scene) setScene(cue.scene);
+    // Ein Blitz mit eigenem Licht im selben Moment landet danach in diesem Licht.
+    if (cue.flash) playFlash(cue.flash, effective(book.cues, idx).scene);
+    else if (cue.scene) setScene(cue.scene);
+    else setScene(flashing);
     if ("loop" in cue) audio.setLoop(cue.loop);
   } else {
     // Rückwärts: Zustand von Cue idx wiederherstellen, ohne Einzeleffekte.
@@ -581,10 +634,12 @@ function goToPage(page, reopened) {
   // läuft nie in ihn hinein.
   if (to >= 0 && !exact)
     while (to + 1 < cues.length && typeof cues[to + 1].page !== "number" && !isEnd(cues[to + 1])) to++;
-  // Der Einzeleffekt gehört zum Betreten der Seite; zurück bleibt er stumm (ADR 0003).
+  // Einzeleffekt und Blitz gehören zum Betreten der Seite; zurück bleiben sie
+  // aus (ADR 0003, 0015).
   const entry = exact && (to > idx || reopened) ? cues[to] : null;
   if (to === idx) { armFuse(); renderSync(); } else go(to, false);
   if (entry && entry.oneshot) audio.playOnce(entry.oneshot);
+  if (entry && entry.flash) playFlash(entry.flash, effective(cues, to).scene);
 }
 
 // Das Buch ist zugeklappt. Hat es einen Schlussmoment, kommt er jetzt — wie ein
@@ -597,6 +652,7 @@ function goToEnd() {
   else {
     go(last, false);
     if (cue.oneshot) audio.playOnce(cue.oneshot);
+    if (cue.flash) playFlash(cue.flash, effective(book.cues, last).scene);
   }
   status("Die Vorlese-App hat das Buch zugeklappt.");
 }
@@ -707,6 +763,7 @@ async function startReading(id, data, start) {
 
 function closeBook() {
   audio.fadeOutLoop();
+  finishFlash();
   disconnectRoom();                   // der Code bleibt beim Buch gemerkt
   book = null; bookId = null;
   $("stage").hidden = true; $("shelf").hidden = false;
@@ -922,7 +979,7 @@ async function openEditor(id, open = -1, focus = null) {
     return (await askPin()) ? openEditor(id, open, focus) : null;
   }
   if (!r.ok) return j.error;
-  if (book) { audio.fadeOutLoop(); book = null; bookId = null; }
+  if (book) { audio.fadeOutLoop(); finishFlash(); book = null; bookId = null; }
   closePicker(false);
   hideToast();
   edit = { id, book: j.book, version: j.version, problems: j.problems, open,
@@ -1025,7 +1082,8 @@ async function saveLoop(e) {
   return true;
 }
 
-const FIELDS = [["when", "Wann"], ["scene", "Licht"], ["loop", "Teppich"], ["oneshot", "Effekt"]];
+const FIELDS = [["when", "Wann"], ["scene", "Licht"], ["flash", "Blitz"], ["loop", "Teppich"],
+                ["oneshot", "Effekt"]];
 
 // «Wann» steht nur dort, wo es etwas zu entscheiden gibt: in einem Buch mit
 // Seitenzahlen oder solange die Vorlese-App verbunden ist.
@@ -1045,10 +1103,20 @@ function sceneText(s) {
   return [s.name, s.room, s.dynamic && "dynamisch"].filter(Boolean).join(" · ") || "ungültige Szene";
 }
 
+const secondsText = n => String(n).replace(".", ",") + " s";
+
+function flashText(f) {
+  return [f.name || "ungültige Szene", f.room, secondsText(flashSeconds(f))].filter(Boolean).join(" · ");
+}
+
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
-// Standardraum des Buchs: Er filtert nur die Auswahl «Licht»; die Momente
-// behalten ihren eigenen Raum in scene.room. Von Hand verfälschte Werte gelten
+// Szenen eines Moments: sein Licht und sein Blitz. Beide ziehen in den
+// Standardraum mit (ADR 0012, 0015).
+const lightsOf = cue => ["scene", "flash"].filter(k => cue[k]).map(k => cue[k]);
+
+// Standardraum des Buchs: Er filtert nur die Auswahl «Licht» und «Blitz»; die
+// Momente behalten ihren eigenen Raum in scene.room und flash.room. Von Hand verfälschte Werte gelten
 // als «nicht gesetzt»; das Regal meldet sie als Problem.
 const bookRoom = () => typeof edit.book.room === "string" ? edit.book.room.trim() : "";
 
@@ -1061,18 +1129,20 @@ function renderRoom() {
 // Räume der Momente: Liegen alle Szenen des Buchs im selben Raum, kann ein neuer
 // Standardraum sie mitnehmen (ADR 0012). room bleibt null, sobald sie sich
 // unterscheiden oder ein Moment gar keinen Raum nennt — dann ist die Mischung gewollt.
+// n zählt die Momente mit Szenen, nicht die Szenen.
 function sceneRooms() {
-  const rooms = edit.book.cues.filter(c => c.scene)
-    .map(c => typeof c.scene.room === "string" ? c.scene.room.trim() : "");
+  const lit = edit.book.cues.filter(c => lightsOf(c).length);
+  const rooms = lit.flatMap(lightsOf).map(s => typeof s.room === "string" ? s.room.trim() : "");
   const first = rooms[0];
-  return { n: rooms.length, room: first && rooms.every(r => same(r, first)) ? first : null };
+  return { n: lit.length, room: first && rooms.every(r => same(r, first)) ? first : null };
 }
 
-// Wie viele Momente ihre Szene im Zielraum nicht wiederfinden. Sie ziehen trotzdem
-// mit, das Regal meldet sie danach als Problem.
+// Wie viele Momente eine ihrer Szenen im Zielraum nicht wiederfinden. Sie ziehen
+// trotzdem mit, das Regal meldet sie danach als Problem.
 function countMissing(to) {
   const inRoom = (picker.scenes || []).filter(s => same(s.room, to));
-  return edit.book.cues.filter(c => c.scene && !inRoom.some(s => same(s.name, c.scene.name))).length;
+  return edit.book.cues.filter(c =>
+    lightsOf(c).some(l => !inRoom.some(s => same(s.name, l.name)))).length;
 }
 
 // Vor dem Mitziehen: was der Zielraum schon hat. Danach: was ihm fehlt.
@@ -1102,6 +1172,7 @@ function fieldText(i, field) {
     if (cue.scene) return { text: sceneText(cue.scene) };
     return { text: before.scene ? `unverändert (${before.scene.name})` : "unverändert", keep: true };
   }
+  if (field === "flash") return cue.flash ? { text: flashText(cue.flash) } : { text: "keiner", keep: true };
   if (field === "loop") {
     if (!("loop" in cue)) return { text: before.loop ? `läuft weiter (${before.loop})` : "keiner", keep: true };
     return { text: cue.loop === null ? "ausblenden" : `wechselt zu ${cue.loop}` };
@@ -1115,6 +1186,7 @@ function summary(cue) {
   else if (typeof cue.page === "number") parts.push("Seite " + cue.page + spanText(cue));
   else if (typeof cue.at === "number") parts.push("bei " + percent(cue.at) + " der Seite");
   if (cue.scene) parts.push(sceneText(cue.scene));
+  if (cue.flash) parts.push("Blitz " + flashText(cue.flash));
   if ("loop" in cue) parts.push(cue.loop === null ? "Teppich aus" : "Teppich " + cue.loop);
   if (cue.oneshot) parts.push("Effekt " + cue.oneshot);
   return parts.join(" — ") || "Kein Licht- oder Klangwechsel";
@@ -1191,7 +1263,7 @@ function openMoment(cue, i) {
 // Probleme an die Stelle, an der man sie beheben kann. Eine fehlende Bezeichnung
 // zeigt das leere Feld selbst.
 function renderProblems() {
-  const own = ["label", "when", "scene", "loop", "oneshot"];
+  const own = ["label", "when", "scene", "flash", "loop", "oneshot"];
   document.querySelectorAll("#editor [data-field]:not(.chip)").forEach(slot => {
     const cue = slot.dataset.cue === "book" ? null : Number(slot.dataset.cue), f = slot.dataset.field;
     const found = edit.problems.filter(p => p.cue === cue && (
@@ -1266,14 +1338,15 @@ function hideToast() {
 // ---------- Auswahl: Tippen wählt aus und probiert aus ----------
 // field «room» wählt den Standardraum des Buchs, die übrigen ein Feld von Moment i.
 async function openPicker(i, field) {
-  const light = field === "scene" || field === "room";
+  const light = field === "scene" || field === "flash" || field === "room";
   const p = picker = { i, field, items: null, scenes: null, error: null, playing: null,
                        preview: null, all: !bookRoom(), justSet: null, moved: null };
   $("pickerTitle").textContent = field === "room" ? "Standardraum des Buchs"
-    : `${{ when: "Wann", scene: "Licht", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(edit.book.cues[i], i)}`;
+    : `${{ when: "Wann", scene: "Licht", flash: "Blitz", loop: "Teppich", oneshot: "Effekt" }[field]} für ${momentName(edit.book.cues[i], i)}`;
   $("pickerSearch").value = "";
   $("pickerSearch").placeholder =
-    { scene: "Szene oder Raum suchen", room: "Raum suchen" }[field] || "Sound suchen";
+    { scene: "Szene oder Raum suchen", flash: "Szene oder Raum suchen", room: "Raum suchen" }[field]
+    || "Sound suchen";
   $("pickerSearch").hidden = field === "when";        // hier gibt es nichts zu durchsuchen
   $("pickerDynamic").hidden = field !== "scene";
   $("pickerFilter").hidden = true;
@@ -1285,7 +1358,7 @@ async function openPicker(i, field) {
     const j = await (await fetch(light ? "/api/scenes" : "/api/sounds")).json();
     if (picker !== p) return;
     p.items = !light ? j.sounds
-      : field === "scene" ? j.scenes
+      : field !== "room" ? j.scenes
       : [...new Set(j.scenes.map(s => s.room))];     // /api/scenes liefert nach Raum sortiert
     if (field === "room") p.scenes = j.scenes;       // fürs Mitziehen: welche Namen der Zielraum hat
     if (light && !j.lights) p.error = field === "room"
@@ -1375,8 +1448,8 @@ function renderPicker() {
     if (!items) hint("Lade Räume …");
     for (const r of (items || []).filter(r => !q || r.toLowerCase().includes(q)))
       option(r, same(r, cur) ? "✓ gewählt" : "", same(r, cur), () => pickRoom(r));
-  } else if (field === "scene") {
-    const cur = cue.scene, before = effective(edit.book.cues, i - 1).scene;
+  } else if (field === "scene" || field === "flash") {
+    const cur = cue[field], pick = field === "scene" ? pickScene : pickFlash;
     const isCur = s => !!cur && same(s.name, cur.name) && (cur.room == null || same(s.room, cur.room));
     const matches = s => !q || `${s.name} ${s.room}`.toLowerCase().includes(q);
     const room = bookRoom();
@@ -1388,11 +1461,22 @@ function renderPicker() {
     $("pickerSearch").placeholder = filtered ? "Szene suchen" : "Szene oder Raum suchen";
     const shown = (filtered ? inRoom : items || []).filter(matches);
     const hit = cur && items ? items.find(isCur) : null;
-    option("Kein Lichtwechsel", before ? `bleibt ${before.name}` : "", !cur, () => pickScene(null));
+    if (field === "scene") {
+      const before = effective(edit.book.cues, i - 1).scene;
+      option("Kein Lichtwechsel", before ? `bleibt ${before.name}` : "", !cur, () => pickScene(null));
+    } else {
+      // Zurück geht es zum Licht dieses Moments, auch wenn er es selbst setzt.
+      const back = effective(edit.book.cues, i).scene;
+      option("Kein Blitz", "", !cur, () => pickFlash(null));
+      rows.push(secondsRow(cur));
+      hint(!back ? "Vor diesem Moment gibt es noch kein Licht, zu dem ein Blitz zurückkehren kann."
+        : cur ? `Nach ${secondsText(flashSeconds(cur))} zurück zu ${back.name}.`
+        : `Danach zurück zu ${back.name}.`);
+    }
     // Was der Moment schaltet, bleibt sichtbar, auch wenn Filter oder Suche es ausblenden.
     if (cur && items && !shown.some(isCur))
-      option(sceneText(cur), hit ? "✓ gewählt" : "nicht auf der Bridge", true,
-             hit ? () => pickScene(hit) : () => {}, !hit);
+      option(field === "scene" ? sceneText(cur) : cur.name, hit ? "✓ gewählt" : "nicht auf der Bridge",
+             true, hit ? () => pick(hit) : () => {}, !hit);
     if (!items) hint("Lade Szenen …");
     else if (filtered && !shown.length && items.some(matches))
       hint(`Keine Treffer in «${room}», aber ${plural(items.filter(matches).length,
@@ -1400,10 +1484,10 @@ function renderPicker() {
     let head = null;
     for (const s of shown) {
       if (!filtered && s.room !== head) heading(head = s.room);
-      option(s.name, isCur(s) ? "✓ gewählt" : "", isCur(s), () => pickScene(s));
+      option(s.name, isCur(s) ? "✓ gewählt" : "", isCur(s), () => pick(s));
     }
     $("dynamic").checked = !!cur?.dynamic;
-    $("dynamic").disabled = !cur;
+    $("dynamic").disabled = !cur || field !== "scene";
   } else {
     const cur = cue[field];
     if (field === "loop") {
@@ -1468,22 +1552,22 @@ function renderRoomLine() {
   }));
 }
 
-// Alle Momente in den Standardraum mitnehmen: Geschrieben wird nur scene.room, die
-// Szenennamen bleiben. Darum ist der Weg zurück derselbe Schritt mit dem alten Raum.
+// Alle Momente in den Standardraum mitnehmen: Geschrieben wird nur der Raum von
+// Licht und Blitz, die Szenennamen bleiben. Darum ist der Weg zurück derselbe
+// Schritt mit dem alten Raum.
 function moveMoments(to, n, missing) {
   const prev = [];
-  edit.book.cues.forEach((cue, i) => {
-    if (!cue.scene) return;
-    prev.push([i, cue.scene.room]);
-    cue.scene.room = to;
-  });
+  for (const light of edit.book.cues.flatMap(lightsOf)) {
+    prev.push([light, light.room]);
+    light.room = to;
+  }
   picker.moved = { to, n, missing, prev };
   changed();
   renderPicker();
 }
 
 function undoMove() {
-  for (const [i, room] of picker.moved.prev) edit.book.cues[i].scene.room = room;
+  for (const [light, room] of picker.moved.prev) light.room = room;
   picker.moved = null;
   changed();
   renderPicker();
@@ -1547,23 +1631,60 @@ function pickWhen(when) {
   renderPicker();
 }
 
+// Die erste Szene des Buchs setzt den Standardraum: Von hier an startet die
+// Auswahl dort. Die offene Liste bleibt, wie sie ist, und sagt es nur.
+function adoptRoom(room) {
+  if (bookRoom()) return;
+  edit.book.room = room;
+  picker.all = true;
+  picker.justSet = room;
+  renderRoom();
+}
+
 function pickScene(s) {
   const cue = edit.book.cues[picker.i];
   if (s) {
     cue.scene = { name: s.name, room: s.room };
     if ($("dynamic").checked) cue.scene.dynamic = true;
-    // Die erste Szene des Buchs setzt den Standardraum: Von hier an startet die
-    // Auswahl dort. Die offene Liste bleibt, wie sie ist, und sagt es nur.
-    if (!bookRoom()) {
-      edit.book.room = s.room;
-      picker.all = true;
-      picker.justSet = s.room;
-      renderRoom();
-    }
+    adoptRoom(s.room);
     previewScene(cue.scene);
   } else delete cue.scene;
   changed();
   renderPicker();
+}
+
+// Eine andere Szene behält die Dauer des Blitzes.
+function pickFlash(s) {
+  const cue = edit.book.cues[picker.i];
+  if (s) {
+    const seconds = cue.flash ? flashSeconds(cue.flash) : FLASH_DEFAULT;
+    cue.flash = { name: s.name, room: s.room, seconds };
+    adoptRoom(s.room);
+    previewFlash(cue.flash);
+  } else delete cue.flash;
+  changed();
+  renderPicker();
+}
+
+function pickSeconds(n) {
+  const cue = edit.book.cues[picker.i];
+  cue.flash.seconds = n;
+  changed();
+  previewFlash(cue.flash);
+  renderPicker();
+}
+
+// Dauer eines Blitzes. Eine von Hand gesetzte Dauer ohne eigenen Chip nennt der
+// Hinweis darunter.
+function secondsRow(cur) {
+  const secs = cur ? flashSeconds(cur) : null;
+  return h("div", { className: "pickRow durations" }, h("span", { textContent: "Dauer" }),
+    ...FLASH_CHOICES.map(n => {
+      const b = h("button", { className: "chip", textContent: secondsText(n), disabled: !cur,
+                              onclick: () => pickSeconds(n) });
+      b.setAttribute("aria-pressed", secs === n);
+      return b;
+    }));
 }
 
 // "" = kein Standardraum; das Feld verschwindet dann aus der Buchdatei.
@@ -1576,9 +1697,20 @@ function pickRoom(room) {
   renderPicker();
 }
 
+const pickerReport = msg => { if (picker) $("pickerStatus").textContent = msg; };
+
+// Eine Probe beendet einen laufenden Blitz: Sonst holte dessen Rückkehr das
+// eben gewählte Licht wieder weg.
 function previewScene(scene) {
   $("pickerStatus").textContent = "";
-  setScene(scene, msg => { if (picker) $("pickerStatus").textContent = msg; });
+  endFlash();
+  setScene(scene, pickerReport);
+}
+
+// Der Blitz kehrt zum Licht dieses Moments zurück, so wie später beim Lesen.
+function previewFlash(f) {
+  $("pickerStatus").textContent = "";
+  playFlash(f, effective(edit.book.cues, picker.i).scene, pickerReport);
 }
 
 // name: Dateiname, null = ausblenden (nur Teppich), undefined = Feld entfernen.
