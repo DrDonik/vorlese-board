@@ -59,7 +59,8 @@ A moment gets an optional field `flash`, next to `scene`:
   scenes is mixed and is not offered the move.
 - **Shelf check.** The shelf reports a flash with an unknown scene, a length
   outside 1 to 10 seconds, and a flash before any moment has set a light, because
-  such a flash has nothing to return to.
+  such a flash has nothing to return to. Neither reading nor the editor plays such
+  a flash, so that the room is never left in it.
 
 ## Consequences
 
@@ -72,6 +73,10 @@ A moment gets an optional field `flash`, next to `scene`:
   within a second can still lose the return; the next light change repairs it.
 - The return timer lives on the reading device. If the device sleeps during a
   flash, the return comes when it wakes up.
+- The board sends scene recalls one at a time and in order, and drops a waiting
+  recall once a newer one is queued. Otherwise a flash could overtake its own
+  return and stay on. The length of a flash counts from the moment the bridge
+  has switched it.
 - A flash to the scene that is already on has no visible effect. The editor does
   not prevent this, because the light of the scene can still change before the
   book is read.

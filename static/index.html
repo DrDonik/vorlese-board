@@ -392,13 +392,24 @@ function effective(cues, i) {
   return { scene, loop };
 }
 
+// Szenenaufrufe gehen einzeln und in ihrer Reihenfolge an den Server, sonst
+// könnte ein älterer einen neueren überholen, etwa ein Blitz seine Rückkehr.
+// Wer wartet und schon überholt ist, fällt weg: Im Raum zählt nur das letzte Licht.
+// Das Versprechen erfüllt sich, wenn der Aufruf erledigt oder weggefallen ist.
+let lightChain = Promise.resolve(), lightLatest = 0;
+
 // duration: Übergang in ms; ohne Angabe blendet die Bridge wie gewohnt über.
-async function setScene(scene, report = status, duration = null) {
-  if (!scene) return;
+function setScene(scene, report = status, duration = null) {
+  if (!scene) return lightChain;
+  const n = ++lightLatest;
+  const body = JSON.stringify(duration === null ? scene : { ...scene, duration });
+  return lightChain = lightChain.then(() => n === lightLatest ? sendScene(body, report) : undefined);
+}
+
+async function sendScene(body, report) {
   try {
     const r = await fetch("/api/scene", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(duration === null ? scene : { ...scene, duration }),
+      method: "POST", headers: { "Content-Type": "application/json" }, body,
     });
     const j = await r.json();
     if (!r.ok) report(j.error || "Szene nicht gesetzt");
@@ -419,16 +430,20 @@ let flash = null;                          // {back, timer}, solange ein Blitz l
 const flashSeconds = f => typeof f.seconds === "number" && f.seconds >= FLASH_MIN
   && f.seconds <= FLASH_MAX ? f.seconds : FLASH_DEFAULT;
 
-// back: die Szene, zu der der Blitz zurückkehrt; null, wenn es noch keine gibt.
-function playFlash(f, back, report = status) {
+// back: die Szene, zu der der Blitz zurückkehrt. Ohne sie bliebe der Raum im
+// Blitz stehen, deshalb bleibt er dann aus; das Regal meldet so ein Buch.
+// Die Dauer zählt ab dem Moment, in dem die Bridge den Blitz geschaltet hat.
+async function playFlash(f, back, report = status) {
   endFlash();
-  const shown = setScene({ name: f.name, room: f.room }, report, FLASH_IN);
-  const run = flash = { back, timer: setTimeout(async () => {
-    await shown;                           // die Rückkehr darf den Blitz nicht überholen
+  if (!back) return;
+  const run = flash = { back, timer: null };
+  await setScene({ name: f.name, room: f.room }, report, FLASH_IN);
+  if (flash !== run) return;
+  run.timer = setTimeout(() => {
     if (flash !== run) return;
     flash = null;
     setScene(back, report, FLASH_OUT);
-  }, flashSeconds(f) * 1000) };
+  }, flashSeconds(f) * 1000);
 }
 
 // Beendet einen laufenden Blitz ohne Rückkehr und nennt die Szene, zu der er
@@ -480,9 +495,10 @@ async function go(to, forward) {
   if (forward) {
     if (cue.oneshot) audio.playOnce(cue.oneshot);
     // Ein Blitz mit eigenem Licht im selben Moment landet danach in diesem Licht.
-    if (cue.flash) playFlash(cue.flash, effective(book.cues, idx).scene);
+    const light = effective(book.cues, idx).scene;
+    if (cue.flash) playFlash(cue.flash, light);
     else if (cue.scene) setScene(cue.scene);
-    else setScene(flashing);
+    else if (flashing) setScene(light);
     if ("loop" in cue) audio.setLoop(cue.loop);
   } else {
     // Rückwärts: Zustand von Cue idx wiederherstellen, ohne Einzeleffekte.
