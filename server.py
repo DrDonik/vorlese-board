@@ -41,10 +41,15 @@ BOOK_FIELDS = {"title", "room", "sync", "cues"}
 # Feste Reihenfolge beim Schreiben; Unbekanntes steht vor den Momenten und faellt so auf.
 BOOK_KEY_ORDER = {"title": 0, "room": 1, "sync": 2, "cues": 4}
 # In einem Moment steht erst, wann er kommt, dann was er schaltet; Unbekanntes am Ende.
-CUE_KEY_ORDER = {"label": 0, "page": 1, "at": 1, "span": 2, "scene": 3, "loop": 4,
-                 "oneshot": 5, "triggers": 6}
-CUE_FIELDS = {"label", "scene", "loop", "oneshot", "page", "at", "span", "triggers"}
+CUE_KEY_ORDER = {"label": 0, "page": 1, "at": 1, "span": 2, "scene": 3, "flash": 4,
+                 "loop": 5, "oneshot": 6, "triggers": 7}
+CUE_FIELDS = {"label", "scene", "flash", "loop", "oneshot", "page", "at", "span", "triggers"}
 SCENE_FIELDS = {"name", "room", "dynamic"}
+FLASH_FIELDS = {"name", "room", "seconds"}
+# Grenzen fuer die Dauer eines Blitzes (ADR 0015): Unter einer Sekunde verschluckt
+# die Bridge die Rueckkehr womoeglich.
+FLASH_MIN, FLASH_MAX = 1, 10
+MAX_TRANSITION = 60_000  # laengster Uebergang beim Szenenaufruf in ms
 SYNC_FIELDS = {"hash"}
 MAX_HASH = 64  # so lang ist die Buchkennung in der Vorlese-App hoechstens
 # Grenzen fuer «span»: Eine Seite ist hoechstens fuenfmal so lang wie eine normale.
@@ -151,11 +156,13 @@ class Bridge:
             raise LookupError(problem)
         return matches[0]["id"]
 
-    def recall(self, name, room=None, dynamic=False):
+    def recall(self, name, room=None, dynamic=False, duration=None):
+        """Szene aufrufen; duration ist der Uebergang in ms, sonst der der Bridge."""
         scene_id = self.resolve(name, room)
-        action = "dynamic_palette" if dynamic else "active"
-        self._request("PUT", f"/clip/v2/resource/scene/{scene_id}",
-                      {"recall": {"action": action}})
+        recall = {"action": "dynamic_palette" if dynamic else "active"}
+        if duration is not None:
+            recall["duration"] = duration
+        self._request("PUT", f"/clip/v2/resource/scene/{scene_id}", {"recall": recall})
         return scene_id
 
 
@@ -260,7 +267,7 @@ def format_book(data):
     def compact(value):
         return json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
     def ordered(cue):
-        return {k: cue[k] for k in sorted(cue, key=lambda k: CUE_KEY_ORDER.get(k, 7))}
+        return {k: cue[k] for k in sorted(cue, key=lambda k: CUE_KEY_ORDER.get(k, 8))}
 
     fields = []
     for key, value in sorted(data.items(), key=lambda kv: BOOK_KEY_ORDER.get(kv[0], 3)):
@@ -327,6 +334,7 @@ def book_problems(data, scenes=None):
     if "sync" in data:
         add_sync_problems(data["sync"], book_problem)
     add_page_problems(cues, cue_problem)
+    back = None  # das Licht bis hierher, zu dem ein Blitz zurueckkehrt
     for i, cue in enumerate(cues):
         label = cue.get("label")
         has_label = isinstance(label, str) and label.strip()
@@ -340,6 +348,9 @@ def book_problems(data, scenes=None):
             add(f"unbekanntes Feld «{key}»", None)
         if "scene" in cue:
             add_scene_problems(cue["scene"], scenes, lambda msg: add(msg, "scene"))
+            back = cue["scene"]
+        if "flash" in cue:
+            add_flash_problems(cue["flash"], scenes, back, lambda msg: add(msg, "flash"))
         if "loop" in cue and cue["loop"] is not None:
             add_sound_problem(cue["loop"], "loop", lambda msg: add(msg, "loop"))
         if "oneshot" in cue:
@@ -427,21 +438,57 @@ def add_span_problem(value, add):
         add(f"«span» muss eine Zahl zwischen {SPAN_MIN} und {SPAN_MAX} sein")
 
 
-def add_scene_problems(scene, scenes, add):
+def add_scene_problems(scene, scenes, add, field="scene", fields=SCENE_FIELDS):
+    """Szene eines Moments; field ist «scene» oder «flash» und steht in den Meldungen."""
     if not isinstance(scene, dict) or not isinstance(scene.get("name"), str) \
             or not scene["name"].strip():
-        return add("Szene braucht einen Namen «scene.name»")
-    for key in sorted(scene.keys() - SCENE_FIELDS):
-        add(f"unbekanntes Feld «scene.{key}»")
-    if not isinstance(scene.get("dynamic", False), bool):
-        add("«scene.dynamic» muss true oder false sein")
+        return add(f"Szene braucht einen Namen «{field}.name»")
+    for key in sorted(scene.keys() - fields):
+        add(f"unbekanntes Feld «{field}.{key}»")
+    if "dynamic" in fields and not isinstance(scene.get("dynamic", False), bool):
+        add(f"«{field}.dynamic» muss true oder false sein")
     room = scene.get("room")
     if room is not None and not isinstance(room, str):
-        return add("«scene.room» muss Text sein")
+        return add(f"«{field}.room» muss Text sein")
     if scenes is not None:
         problem = scene_problem(find_scenes(scenes, scene["name"], room), scene["name"], room)
         if problem:
             add(problem)
+
+
+def scene_room(scene, scenes):
+    """Raum einer Szene: der genannte, sonst der ihres einzigen Treffers auf der Bridge.
+
+    None, wenn er sich nicht sagen laesst: ohne Bridge oder bei einer Szene, die das
+    Regal ohnehin als unbekannt oder mehrdeutig meldet.
+    """
+    if not isinstance(scene, dict):
+        return None
+    if isinstance(scene.get("room"), str):
+        return scene["room"]
+    if scenes is None or not isinstance(scene.get("name"), str):
+        return None
+    rooms = {s["room"] for s in find_scenes(scenes, scene["name"])}
+    return rooms.pop() if len(rooms) == 1 else None
+
+
+def add_flash_problems(flash, scenes, back, add):
+    """Blitz (ADR 0015): eine Szene fuer kurze Zeit, danach zurueck zum Licht davor.
+
+    Er kehrt nur im eigenen Raum zurueck; in einem anderen bliebe dieser im Blitz stehen.
+    """
+    add_scene_problems(flash, scenes, add, "flash", FLASH_FIELDS)
+    if not isinstance(flash, dict):
+        return
+    seconds = flash.get("seconds")
+    if "seconds" in flash and (not isinstance(seconds, (int, float)) or isinstance(seconds, bool)
+                               or not FLASH_MIN <= seconds <= FLASH_MAX):
+        add(f"«flash.seconds» muss eine Zahl zwischen {FLASH_MIN} und {FLASH_MAX} sein")
+    if back is None:
+        return add("Der Blitz braucht davor ein Licht, zu dem er zurückkehrt")
+    here, there = scene_room(flash, scenes), scene_room(back, scenes)
+    if here is not None and there is not None and here.lower() != there.lower():
+        add(f"Der Blitz spielt in «{here}», das Licht, zu dem er zurückkehrt, in «{there}»")
 
 
 def add_sound_problem(name, key, add):
@@ -678,13 +725,18 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(404, {"error": "Nicht gefunden"})
         req = self._read_json()
         if not isinstance(req, dict) or not isinstance(req.get("name"), str):
-            return self._json(400, {"error": "Erwartet: {name, room?, dynamic?}"})
+            return self._json(400, {"error": "Erwartet: {name, room?, dynamic?, duration?}"})
+        duration = req.get("duration")
+        if duration is not None and (not isinstance(duration, int) or isinstance(duration, bool)
+                                     or not 0 <= duration <= MAX_TRANSITION):
+            return self._json(400, {"error": f"«duration» muss eine ganze Zahl von 0 bis "
+                                             f"{MAX_TRANSITION} ms sein"})
         name = req["name"]
         if self.bridge is None:
             print(f"[Trockenmodus] Szene '{name}' ({req.get('room') or 'ohne Raum'})")
             return self._json(200, {"ok": True, "dry_run": True})
         try:
-            sid = self.bridge.recall(name, req.get("room"), bool(req.get("dynamic")))
+            sid = self.bridge.recall(name, req.get("room"), bool(req.get("dynamic")), duration)
             return self._json(200, {"ok": True, "scene_id": sid})
         except LookupError as e:
             return self._json(404, {"error": str(e)})

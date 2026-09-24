@@ -30,13 +30,14 @@ Im Regal «Neues Buch» wählen, oder bei einem Buch «Bearbeiten» (auch aus de
 Im Editor:
 
 - Enter in einer Bezeichnung legt den nächsten Moment an: erst das Gerüst tippen, dann ausgestalten.
-- Licht wählen schaltet die Szene sofort, Sounds werden beim Auswählen angespielt.
+- Licht wählen schaltet die Szene sofort, ein Blitz blitzt samt Rückkehr, Sounds werden beim Auswählen angespielt.
 - Der «Standardraum» unter dem Titel bestimmt, welcher Raum in der Licht-Auswahl zuerst
   erscheint. Die erste gewählte Szene setzt ihn; in der Auswahl lässt sich mit einem Tipp
   auf alle Räume umschalten.
 - Spielen alle Momente im selben Raum, nimmt ein neuer Standardraum sie auf einen Tipp mit:
   Die Auswahl sagt, wie viele der Szenen es im neuen Raum schon gibt, und lässt sich
-  rückgängig machen. Die Szenennamen bleiben, nur `scene.room` wird neu geschrieben.
+  rückgängig machen. Die Szenennamen bleiben, nur `scene.room` und `flash.room` werden
+  neu geschrieben.
 - «Ab hier probelesen» springt in den Lesemodus, mit Licht und Klang wie vor diesem Moment.
 - Jede Änderung ist sofort gespeichert. Neue Sounds in `sounds/` legen, sie erscheinen gleich in der Auswahl.
 
@@ -55,6 +56,7 @@ von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liege
         { "label": "Im Wald",    "page": 7, "span": 1.8, "scene": {"name": "Wald", "room": "Wohnzimmer"}, "loop": "wald.mp3" },
         { "label": "Es raschelt", "at": 0.6, "oneshot": "rascheln.mp3" },
         { "label": "Zauber",     "scene": {"name": "Polarlicht", "room": "Wohnzimmer", "dynamic": true} },
+        { "label": "Ein Schrei", "flash": {"name": "Blutrot", "room": "Wohnzimmer", "seconds": 2} },
         { "label": "Gute Nacht", "page": 9, "scene": {"name": "Nachtlicht", "room": "Wohnzimmer"}, "loop": null,
           "triggers": ["gute Nacht"] } ] }
 
@@ -63,6 +65,10 @@ von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liege
 - `page`, `at`, `span`, `sync`: nur für das Mitlesen mit der Vorlese-App, siehe unten.
 - `scene`: Name exakt wie in der Hue-App (Gross-/Kleinschreibung egal); `room` nötig, wenn der
   Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
+- `flash`: Blitz, eine Szene für kurze Zeit. Er schaltet hart ein und kehrt nach `seconds`
+  (1 bis 10, ohne Angabe 2) weich zum Licht des Moments zurück. Er gehört wie `oneshot`
+  nicht zum Zustand: «Zurück» und «Ab hier probelesen» spielen ihn nicht (ADR 0015).
+  Licht erzählt die Geschichte, Stimmung tragen Ton und Blitz (ADR 0014).
 - `loop`: Dateiname = Klangteppich überblenden, `null` = ausblenden, Feld weglassen = weiterlaufen lassen.
 - `oneshot`: Einzeleffekt, einmal abgespielt (nur vorwärts, nicht bei «Zurück»).
 - `triggers`: Stichwörter für die spätere Spracherkennung (Stufe 2), derzeit ungenutzt.
