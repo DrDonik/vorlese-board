@@ -756,17 +756,31 @@ function stopFuse() {
 // Der Bildschirm bleibt wach, solange ein Buch offen ist. Safari gibt den Lock
 // nur kurz nach einem Tipp frei, also vor jedem Warten auf Server oder Sounds
 // anfordern. Den Lock gibt der Browser beim Verstecken der Seite selbst frei.
-let wakeLock = null, wakeRequest = null, wakeWanted = false;
+// Wird die Seite wieder sichtbar, während eine Anfrage läuft, wird sie danach
+// einmal wiederholt (wakeRetry): Die laufende scheitert womöglich am Verstecken.
+const WAKE_FAILED = "Bildschirm bleibt nicht wach: ";
+let wakeLock = null, wakeRequest = null, wakeWanted = false, wakeRetry = false;
 function keepAwake() {
   wakeWanted = true;
   if (!navigator.wakeLock || wakeRequest || wakeLock?.released === false) return;
   wakeRequest = navigator.wakeLock.request("screen")
-    .then(lock => { if (wakeWanted) wakeLock = lock; else lock.release(); })
-    .catch(e => { if (wakeWanted) status("Bildschirm bleibt nicht wach: " + e.message); })
-    .finally(() => { wakeRequest = null; });
+    .then(lock => {
+      if (!wakeWanted) { lock.release(); return; }
+      wakeLock = lock; wakeRetry = false;
+      if ($("status").textContent.startsWith(WAKE_FAILED)) status("");
+    })
+    .catch(e => { if (wakeWanted) status(WAKE_FAILED + e.message); })
+    .finally(() => {
+      wakeRequest = null;
+      if (wakeRetry && wakeWanted && document.visibilityState === "visible") {
+        wakeRetry = false;
+        keepAwake();
+      }
+    });
 }
 function releaseWake() {
   wakeWanted = false;                 // eine noch laufende Anfrage gibt ihren Lock gleich zurück
+  wakeRetry = false;
   wakeLock?.release();
   wakeLock = null;
 }
@@ -1050,7 +1064,7 @@ async function leaveEditor() {
 async function rehearse(i) {
   audio.init();                       // noch in der Tipp-Geste, für iOS
   keepAwake();
-  if (!(await save())) { releaseWake(); return; }
+  if (!(await save())) { if (!book) releaseWake(); return; }
   const e = edit;
   closePicker(false);
   hideToast();
@@ -1950,7 +1964,7 @@ document.addEventListener("visibilitychange", () => {
   if (!$("shelf").hidden) loadShelf();
   // Im Hintergrund bremst der Browser Zeitgeber; die Zündschnur rechnet neu.
   if (book && room) armFuse();
-  if (book) keepAwake();
+  if (book) { wakeRetry = !!wakeRequest; keepAwake(); }
 });
 loadShelf();
 </script>
