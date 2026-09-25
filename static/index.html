@@ -753,14 +753,47 @@ function stopFuse() {
 }
 
 // ---------- Screens ----------
+// Der Bildschirm bleibt wach, solange ein Buch offen ist. Safari gibt den Lock
+// nur kurz nach einem Tipp frei, also vor jedem Warten auf Server oder Sounds
+// anfordern. Den Lock gibt der Browser beim Verstecken der Seite selbst frei.
+// Wird die Seite wieder sichtbar, während eine Anfrage läuft, wird sie danach
+// einmal wiederholt (wakeRetry): Die laufende scheitert womöglich am Verstecken.
+const WAKE_FAILED = "Bildschirm bleibt nicht wach: ";
+let wakeLock = null, wakeRequest = null, wakeWanted = false, wakeRetry = false;
+function keepAwake() {
+  wakeWanted = true;
+  if (!navigator.wakeLock || wakeRequest || wakeLock?.released === false) return;
+  wakeRequest = navigator.wakeLock.request("screen")
+    .then(lock => {
+      if (!wakeWanted) { lock.release(); return; }
+      wakeLock = lock; wakeRetry = false;
+      if ($("status").textContent.startsWith(WAKE_FAILED)) status("");
+    })
+    .catch(e => { if (wakeWanted) status(WAKE_FAILED + e.message); })
+    .finally(() => {
+      wakeRequest = null;
+      if (wakeRetry && wakeWanted && document.visibilityState === "visible") {
+        wakeRetry = false;
+        keepAwake();
+      }
+    });
+}
+function releaseWake() {
+  wakeWanted = false;                 // eine noch laufende Anfrage gibt ihren Lock gleich zurück
+  wakeRetry = false;
+  wakeLock?.release();
+  wakeLock = null;
+}
+
 async function openBook(id) {
   audio.init();                       // erster Tipp entsperrt Audio auf iOS
+  keepAwake();                        // noch in der Tipp-Geste
   let r, j;
   try {
     r = await fetch("/api/books/" + encodeURIComponent(id));
     j = await r.json();
-  } catch { $("shelfHint").textContent = "Server nicht erreichbar."; return false; }
-  if (!r.ok) { $("shelfHint").textContent = j.error; return false; }
+  } catch { if (!book) releaseWake(); $("shelfHint").textContent = "Server nicht erreichbar."; return false; }
+  if (!r.ok) { if (!book) releaseWake(); $("shelfHint").textContent = j.error; return false; }
   startReading(id, j, -1);
   return true;
 }
@@ -769,6 +802,7 @@ async function openBook(id) {
 // diesem Moment wären (Probelesen aus dem Editor).
 async function startReading(id, data, start) {
   book = data; bookId = id; idx = -1;
+  keepAwake();                        // das Laden der Sounds dauert länger als die Tipp-Geste
   const sounds = [...new Set(book.cues.flatMap(c => [c.loop, c.oneshot]).filter(Boolean))];
   $("bookTitle").textContent = book.title;
   $("shelf").hidden = true; $("editor").hidden = true; $("stage").hidden = false;
@@ -780,7 +814,6 @@ async function startReading(id, data, start) {
   // Wurde vor Ende des Ladens weitergetippt, fehlt der Klangteppich noch.
   if (idx >= 0) audio.setLoop(effective(book.cues, idx).loop);
   if (missing.length) status("Fehlende Sounds: " + missing.join(", "));
-  try { await navigator.wakeLock?.request("screen"); } catch {}
   $("next").focus();
 }
 
@@ -788,6 +821,7 @@ function closeBook() {
   audio.fadeOutLoop();
   finishFlash();
   disconnectRoom();                   // der Code bleibt beim Buch gemerkt
+  releaseWake();
   book = null; bookId = null;
   $("stage").hidden = true; $("shelf").hidden = false;
   loadShelf();                        // Buchdateien können sich inzwischen geändert haben
@@ -1002,7 +1036,7 @@ async function openEditor(id, open = -1, focus = null) {
     return (await askPin()) ? openEditor(id, open, focus) : null;
   }
   if (!r.ok) return j.error;
-  if (book) { audio.fadeOutLoop(); finishFlash(); book = null; bookId = null; }
+  if (book) { audio.fadeOutLoop(); finishFlash(); releaseWake(); book = null; bookId = null; }
   closePicker(false);
   hideToast();
   edit = { id, book: j.book, version: j.version, problems: j.problems, open,
@@ -1029,7 +1063,8 @@ async function leaveEditor() {
 
 async function rehearse(i) {
   audio.init();                       // noch in der Tipp-Geste, für iOS
-  if (!(await save())) return;
+  keepAwake();
+  if (!(await save())) { if (!book) releaseWake(); return; }
   const e = edit;
   closePicker(false);
   hideToast();
@@ -1929,6 +1964,7 @@ document.addEventListener("visibilitychange", () => {
   if (!$("shelf").hidden) loadShelf();
   // Im Hintergrund bremst der Browser Zeitgeber; die Zündschnur rechnet neu.
   if (book && room) armFuse();
+  if (book) { wakeRetry = !!wakeRequest; keepAwake(); }
 });
 loadShelf();
 </script>
