@@ -199,9 +199,13 @@ def describe_light(action):
     if not action.get("on", {}).get("on", True):
         return "aus"
     parts = [f"{light_brightness(action):.0f} %"]
+    points = action.get("gradient", {}).get("points", [])
     mirek = action.get("color_temperature", {}).get("mirek")
     xy = action.get("color", {}).get("xy")
-    if mirek:
+    if points:  # wie die Hue-App: Anfang, Mitte und Ende des Verlaufs
+        shown = [points[i]["color"]["xy"] for i in sorted({0, len(points) // 2, len(points) - 1})]
+        parts.append("Verlauf " + " → ".join(f"x={p['x']:.3f} y={p['y']:.3f}" for p in shown))
+    elif mirek:
         parts.append(f"{round(1_000_000 / mirek, -2):.0f} K")
     elif xy:
         parts.append(f"Farbe x={xy['x']:.3f} y={xy['y']:.3f}")
