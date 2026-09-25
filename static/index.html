@@ -1507,7 +1507,7 @@ async function openPicker(i, field) {
       : field !== "room" ? j.scenes
       : [...new Set(j.scenes.map(s => s.room))];     // /api/scenes liefert nach Raum sortiert
     if (field === "room") p.scenes = j.scenes;       // fürs Mitziehen: welche Namen der Zielraum hat
-    if (light && j.lights && !j.error) edit.lights = j.scenes;   // die Leiste folgt der Bridge
+    if (light && j.lights && !j.error) { edit.lights = j.scenes; renderRails(); }   // die Leiste folgt der Bridge
     if (light && !j.lights) p.error = field === "room"
       ? "Trockenmodus: Ohne Bridge sind keine Räume bekannt."
       : "Trockenmodus: Ohne Bridge lassen sich keine Szenen auswählen.";

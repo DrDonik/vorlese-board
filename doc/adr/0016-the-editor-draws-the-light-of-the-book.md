@@ -44,8 +44,8 @@ stays without it, so that nothing on the screen competes with the book.
   colour and brightness of the flash (0015). A flash that would not play, because
   there is no light to return to or it lies in another room, is not drawn.
 - **A scene the bridge cannot resolve** (missing, ambiguous, without lamps) is a
-  band in the warning colour until the next scene. The shelf check names the
-  problem.
+  band in the warning colour until the next scene. The shelf check names a
+  missing or ambiguous scene; a scene without lamps is only shown on the rail.
 - **Tapping the rail next to a moment opens that moment.** The rail is hidden from
   screen readers, because every moment already names its light in text.
 - **Without a bridge, in dry mode or when it cannot be reached, there is no rail.**
