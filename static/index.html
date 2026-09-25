@@ -94,7 +94,7 @@
   #edRoom > span { font-size: .85rem; color: var(--mist); }
   #bookProblems { margin: .75rem 0 0; }
   #moments { list-style: none; margin: .5rem 0 0; padding: 0; }
-  .moment { border-bottom: 1px solid var(--dusk); }
+  .moment { position: relative; border-bottom: 1px solid var(--dusk); }   /* für die Lichtleiste */
   .moment .head { display: flex; gap: .75rem; width: 100%; text-align: left; padding: .9rem 0; }
   .num { min-width: 1.5rem; font-size: .9rem; color: var(--mist); }
   .head .num { padding-top: .2rem; }
@@ -118,6 +118,22 @@
   .actions .try { color: var(--lamp); }
   .actions .del { color: var(--warn); }
   #addMoment { font-size: 1.05rem; color: var(--mist); padding: 1rem 0; }
+  /* Lichtleiste (ADR 0016): im freien Rand links der Momente. --c ist die Farbe des
+     Lichts, die Lage nach Helligkeit setzt renderRails(). */
+  .rail { position: absolute; top: 0; bottom: 0; right: calc(100% + .75rem); width: 3rem; }
+  .moment:not(.open) > .rail { cursor: pointer; }
+  .moment.open > .rail { top: -.5rem; bottom: -.5rem; }    /* über den Abstand zum offenen Moment */
+  .rail.unknown { background: rgba(216, 140, 140, .2); }   /* --warn: Licht unbekannt */
+  .rail > * { position: absolute; }
+  .rail .level { top: 0; bottom: 0; width: 3px; background: var(--c); }
+  .rail .step { top: 0; height: 3px; background: var(--c); }
+  .rail .spike { top: .7rem; height: .9rem; min-width: .6rem; border: 3px solid var(--c); }
+  .rail .spike.up { border-left: 0; }
+  .rail .spike.down { border-right: 0; }
+  @media (max-width: 49rem) {         /* zu wenig Rand: die Leiste bekommt ihren Platz vor den Momenten */
+    #moments.lit { padding-left: 2.25rem; }
+    .rail { width: 1.75rem; right: calc(100% + .5rem); }
+  }
   @media (max-width: 30rem) {         /* iPhone: ohne Einzug, damit die Felder Platz haben */
     .field, .actions, .open > .problems { margin-left: 0; }
     .field .problems { padding-left: 0; }
@@ -1015,7 +1031,7 @@ $("roomCode").addEventListener("input", () => {
 // ---------- Editor ----------
 // Jede Änderung wird sofort gespeichert (ADR 0006). version ist der Dateistand,
 // den der Editor kennt; wurde die Datei inzwischen anders geändert, lehnt der Server ab.
-let edit = null;     // {id, book, version, problems, open, dirty, saving, timer, conflict, deleted}
+let edit = null;     // {id, book, version, problems, open, dirty, saving, timer, conflict, deleted, lights}
 let picker = null;   // {i, field, items, scenes, error, playing, preview, all, justSet, moved}
 let toastTimer = null;
 
@@ -1040,14 +1056,26 @@ async function openEditor(id, open = -1, focus = null) {
   closePicker(false);
   hideToast();
   edit = { id, book: j.book, version: j.version, problems: j.problems, open,
-           dirty: false, saving: null, timer: null, conflict: false, deleted: null };
+           dirty: false, saving: null, timer: null, conflict: false, deleted: null, lights: null };
   $("edTitle").value = edit.book.title ?? "";
   applyBookRoom(id);                  // damit «Wann» die Seite der Vorlese-App kennt
   renderRoom();
   edStatus("");
   $("shelf").hidden = true; $("stage").hidden = true; $("editor").hidden = false;
   renderEditor(focus);
+  loadLights(edit);
   return null;
+}
+
+// Szenen samt Helligkeit und Farbe für die Lichtleiste. Ohne Bridge bleibt
+// lights null, und die Leiste fehlt.
+async function loadLights(e) {
+  try {
+    const j = await (await fetch("/api/scenes")).json();
+    if (e !== edit || !j.lights || j.error) return;
+    e.lights = j.scenes;
+    renderRails();
+  } catch {}                          // ohne Server fehlt die Leiste, das Speichern meldet es
 }
 
 async function leaveEditor() {
@@ -1265,12 +1293,72 @@ function renderEditor(focus = null) {
   const cues = edit.book.cues;
   $("moments").replaceChildren(...cues.map((cue, i) =>
     i === edit.open ? openMoment(cue, i) : closedMoment(cue, i)));
+  renderRails();
   renderProblems();
   const open = $("moments").children[edit.open];
   if (open) {
     open.scrollIntoView({ block: "nearest" });
     if (focus) open.querySelector(focus)?.focus();
   }
+}
+
+// ---------- Lichtleiste (ADR 0016) ----------
+// Links neben jedem Moment steht das Licht, das ab ihm gilt: Der Ausschlag nach
+// rechts ist die mittlere Helligkeit, die Farbe die Mischfarbe der Lampen. Eine
+// Stufe oben zeigt, dass der Moment das Licht setzt, eine Zacke seinen Blitz.
+
+// Helligkeit und Farbe einer Szene, wie der Server sie auflöst; null, wenn die
+// Szene fehlt, mehrdeutig ist oder keine Lampen hat.
+function lookOf(s) {
+  const hits = edit.lights.filter(l => same(l.name, s.name) && (s.room == null || same(l.room, s.room)));
+  return hits.length === 1 && typeof hits[0].brightness === "number" ? hits[0] : null;
+}
+
+function railPart(className, look) {
+  const part = h("div", { className });
+  part.style.setProperty("--c", look.color || "var(--mist)");   // dunkel: ohne Farbe
+  return part;
+}
+
+// Aus 0 bis 100 % wird die Lage der 3px breiten Linie in der Leiste.
+const railX = brightness => `calc(${brightness / 100} * (100% - 3px))`;
+
+function renderRails() {
+  $("moments").classList.toggle("lit", !!edit.lights);
+  if (!edit.lights) return;
+  const cues = edit.book.cues;
+  let scene = null, look = null;      // Licht ab dem Moment; look false = unbekannt
+  [...$("moments").children].forEach((li, i) => {
+    const cue = cues[i], before = look;
+    if (cue.scene) { scene = cue.scene; look = lookOf(scene) || false; }
+    const rail = h("div", { className: "rail" + (look === false ? " unknown" : "") });
+    rail.setAttribute("aria-hidden", "true");   // dasselbe steht als Text im Moment
+    if (i !== edit.open) rail.onclick = () => { edit.open = i; renderEditor(); };
+    if (look) {
+      const level = railPart("level", look);
+      level.style.left = railX(look.brightness);
+      rail.append(level);
+      if (cue.scene && before) {
+        const step = railPart("step", look), [a, b] = [before.brightness, look.brightness].sort((m, n) => m - n);
+        step.style.left = railX(a);
+        step.style.width = `calc(${(b - a) / 100} * (100% - 3px) + 3px)`;
+        rail.append(step);
+      }
+      // Nur ein Blitz, der auch spielt: Er braucht Licht im selben Raum, zu dem er zurückkehrt.
+      const flash = cue.flash && flashFits(cue.flash, scene) && lookOf(cue.flash);
+      if (flash) {
+        const up = flash.brightness > look.brightness
+          || (flash.brightness === look.brightness && look.brightness < 50);
+        const [a, b] = [look.brightness, flash.brightness].sort((m, n) => m - n);
+        const spike = railPart("spike " + (up ? "up" : "down"), flash);
+        if (up) spike.style.left = railX(look.brightness);
+        else spike.style.right = railX(100 - look.brightness);
+        spike.style.width = `calc(${(b - a) / 100} * (100% - 3px) + 3px)`;
+        rail.append(spike);
+      }
+    }
+    li.prepend(rail);
+  });
 }
 
 function closedMoment(cue, i) {
@@ -1419,6 +1507,7 @@ async function openPicker(i, field) {
       : field !== "room" ? j.scenes
       : [...new Set(j.scenes.map(s => s.room))];     // /api/scenes liefert nach Raum sortiert
     if (field === "room") p.scenes = j.scenes;       // fürs Mitziehen: welche Namen der Zielraum hat
+    if (light && j.lights && !j.error) edit.lights = j.scenes;   // die Leiste folgt der Bridge
     if (light && !j.lights) p.error = field === "room"
       ? "Trockenmodus: Ohne Bridge sind keine Räume bekannt."
       : "Trockenmodus: Ohne Bridge lassen sich keine Szenen auswählen.";

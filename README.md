@@ -38,6 +38,9 @@ Im Editor:
   Die Auswahl sagt, wie viele der Szenen es im neuen Raum schon gibt, und lässt sich
   rückgängig machen. Die Szenennamen bleiben, nur `scene.room` und `flash.room` werden
   neu geschrieben.
+- Links neben den Momenten zeichnet die Lichtleiste das Licht des Buchs: Der Ausschlag nach
+  rechts ist die mittlere Helligkeit, die Linienfarbe die Farbe des Raums, eine Zacke ein Blitz.
+  Sie erscheint nur mit Bridge; ein Tipp auf die Leiste öffnet den Moment daneben.
 - «Ab hier probelesen» springt in den Lesemodus, mit Licht und Klang wie vor diesem Moment.
 - Jede Änderung ist sofort gespeichert. Neue Sounds in `sounds/` legen, sie erscheinen gleich in der Auswahl.
 

@@ -127,7 +127,7 @@ class Bridge:
             return json.loads(resp.read().decode())
 
     def scenes(self, refresh=False):
-        """Liste von {id, name, room} fuer alle Szenen."""
+        """Liste von {id, name, room, brightness, color} fuer alle Szenen (siehe scene_look)."""
         if self._scene_cache is None or refresh:
             groups = {}
             for kind in ("room", "zone"):
@@ -135,7 +135,8 @@ class Bridge:
                     groups[g["id"]] = g["metadata"]["name"]
             self._scene_cache = [
                 {"id": s["id"], "name": s["metadata"]["name"],
-                 "room": groups.get(s["group"]["rid"], "?")}
+                 "room": groups.get(s["group"]["rid"], "?"),
+                 **scene_look([a["action"] for a in s["actions"]])}
                 for s in self._request("GET", "/clip/v2/resource/scene")["data"]]
         return self._scene_cache
 
@@ -212,6 +213,79 @@ def describe_light(action):
     return ", ".join(parts)
 
 
+WHITE_MIREK = 370  # Lampen ohne Farbangabe, etwa Hue White, leuchten mit etwa 2700 K
+
+
+def mirek_xy(mirek):
+    """Farbort (x, y) einer Farbtemperatur auf der Planck-Kurve (Naeherung nach Kim et al.)."""
+    t = 1_000_000 / mirek
+    if t <= 4000:
+        x = -0.2661239e9 / t**3 - 0.2343589e6 / t**2 + 0.8776956e3 / t + 0.179910
+    else:
+        x = -3.0258469e9 / t**3 + 2.1070379e6 / t**2 + 0.2226347e3 / t + 0.240390
+    if t <= 2222:
+        y = -1.1063814 * x**3 - 1.34811020 * x**2 + 2.18555832 * x - 0.20219683
+    elif t <= 4000:
+        y = -0.9549476 * x**3 - 1.37418593 * x**2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x**3 - 5.87338670 * x**2 + 3.75112997 * x - 0.37001483
+    return x, y
+
+
+def xy_rgb(x, y):
+    """Lineares RGB eines Farborts, auf den hellsten Kanal normiert: nur Farbton und Saettigung."""
+    if y <= 0:
+        return None
+    big_x, big_z = x / y, (1 - x - y) / y
+    rgb = [max(0.0, v) for v in (
+        3.2406 * big_x - 1.5372 - 0.4986 * big_z,
+        -0.9689 * big_x + 1.8758 + 0.0415 * big_z,
+        0.0557 * big_x - 0.2040 + 1.0570 * big_z)]
+    top = max(rgb)
+    return [v / top for v in rgb] if top > 0 else None
+
+
+def light_rgb(action):
+    """Farbe einer eingeschalteten Lampe in einer Szene als normiertes lineares RGB."""
+    points = action.get("gradient", {}).get("points", [])
+    mirek = action.get("color_temperature", {}).get("mirek")
+    xy = action.get("color", {}).get("xy")
+    if points:  # ein Verlauf wirkt im Raum wie das Mittel seiner Punkte
+        colors = [c for c in (xy_rgb(p["color"]["xy"]["x"], p["color"]["xy"]["y"])
+                              for p in points) if c]
+        return [sum(ch) / len(colors) for ch in zip(*colors)] if colors else None
+    if xy:
+        return xy_rgb(xy["x"], xy["y"])
+    return xy_rgb(*mirek_xy(mirek or WHITE_MIREK))
+
+
+def srgb_hex(rgb):
+    """Normiertes lineares RGB als #rrggbb, mit der Gammakurve von sRGB."""
+    def encode(v):
+        return 12.92 * v if v <= 0.0031308 else 1.055 * v ** (1 / 2.4) - 0.055
+    return "#" + "".join(f"{round(encode(v) * 255):02x}" for v in rgb)
+
+
+def scene_look(actions):
+    """Wie eine Szene den Raum aussehen laesst (ADR 0016).
+
+    brightness ist die mittlere Helligkeit in Prozent wie bei --scenes, color die nach
+    Helligkeit gewichtete Mischfarbe der Lampen in voller Helligkeit. Eine Szene ohne
+    Lampen hat keine Helligkeit, eine dunkle keine Farbe; beides ist dann None.
+    """
+    if not actions:
+        return {"brightness": None, "color": None}
+    mix = [0.0, 0.0, 0.0]
+    for action in actions:
+        b = light_brightness(action)
+        rgb = light_rgb(action) if b > 0 else None
+        if rgb:
+            mix = [m + b * v for m, v in zip(mix, rgb)]
+    top = max(mix)
+    return {"brightness": round(sum(map(light_brightness, actions)) / len(actions)),
+            "color": srgb_hex([v / top for v in mix]) if top > 0 else None}
+
+
 def list_scenes(bridge, name=None):
     """Szenen mit mittlerer Helligkeit auflisten; mit Namen zusaetzlich jede Lampe einzeln."""
     scenes = sorted(bridge.scenes(), key=lambda s: (s["room"], s["name"]))
@@ -219,15 +293,12 @@ def list_scenes(bridge, name=None):
         scenes = find_scenes(scenes, name)
         if not scenes:
             sys.exit(f"Szene «{name}» nicht gefunden")
-    lights = bridge.scene_lights()
+    lights = bridge.scene_lights() if name is not None else {}
     for s in scenes:
-        actions = [action for _, action in lights.get(s["id"], [])]
-        mean = (f"Ø {sum(map(light_brightness, actions)) / len(actions):3.0f} %"
-                if actions else "keine Lampen")
+        mean = f"Ø {s['brightness']:3d} %" if s["brightness"] is not None else "keine Lampen"
         print(f"{s['room']:<20} {s['name']:<28} {mean}")
-        if name is not None:
-            for light, action in lights.get(s["id"], []):
-                print(f"    {light:<28} {describe_light(action)}")
+        for light, action in lights.get(s["id"], []):
+            print(f"    {light:<28} {describe_light(action)}")
 
 
 def valid_book_id(book_id):
@@ -637,7 +708,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._books()
         if self.path == "/api/scenes":
             scenes, error = self._scenes(refresh=True)
-            listed = sorted(({"name": s["name"], "room": s["room"]} for s in scenes or []),
+            listed = sorted(({k: s[k] for k in ("name", "room", "brightness", "color")}
+                             for s in scenes or []),
                             key=lambda s: (s["room"].casefold(), s["name"].casefold()))
             return self._json(200, {"scenes": listed, "lights": self.bridge is not None,
                                     "error": error})
