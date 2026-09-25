@@ -192,11 +192,23 @@
 
   /* Lesemodus */
   #stage { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
-  #top { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; color: var(--mist); }
-  #top .title { flex: 1; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #top button { font-size: .95rem; color: var(--mist); padding: .5rem; }
-  #top #sync.live { color: var(--lamp); }
-  #top #sync.warn { color: var(--warn); }
+  /* Dieselbe Leiste wie in der Vorlese-App: Bibliothek, Gemeinsam lesen, Titel,
+     Seite. Zeichen und Wort sind eigene Flex-Elemente, der Abstand ist darum ein gap. */
+  #top { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; }
+  #top > * { flex: none; }
+  #top button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-width: 2.75rem; min-height: 2.75rem; padding: 0 .9rem; border-radius: 10px;
+    background: var(--dusk); white-space: nowrap;
+  }
+  #top #close { gap: 4px; }
+  #top #sync { font-size: 1.125rem; }
+  #sync .word { font-size: 1rem; }
+  #sync.live { background: var(--lamp); color: var(--night); }
+  #sync.warn { background: var(--warn); color: var(--night); }
+  #top .title { flex: 1 1 0; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Nur eine Anzeige: ohne Fläche, damit sie nicht nach einem Knopf aussieht. */
+  #pageIndicator { display: inline-flex; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   #next {
     display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
     padding: 0 8vw; text-align: left; width: 100%;
@@ -209,7 +221,7 @@
   #fuseTrack { width: min(22rem, 60%); height: 3px; margin-top: 1.75rem; background: var(--dusk); border-radius: 2px; }
   #fuse { display: block; width: 0; height: 100%; background: var(--lamp-dim); border-radius: 2px; }
   #bottom { display: flex; align-items: center; gap: 1.25rem; padding: 1rem 1.25rem 1.5rem; }
-  #back { font-size: 1.05rem; color: var(--mist); padding: .75rem 1rem .75rem 0; }
+  #back { white-space: nowrap; font-size: 1.05rem; color: var(--mist); padding: .75rem 1rem .75rem 0; }
   #dots { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   #dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--dusk); }
   #dots span.past { background: var(--lamp-dim); }
@@ -220,6 +232,18 @@
     #next .label { transition: opacity .25s; }
     #next.turning .label { opacity: 0; }
   }
+
+  /* «Gemeinsam lesen» ist das längste Wort der Leiste und weicht zuerst, dann
+     die übrigen Wörter; die Zeichen und die Zahlen bleiben (wie in der App). */
+  @media (max-width: 720px) {
+    #top #sync { padding: 0 .5rem; }
+    #sync .word { display: none; }
+  }
+  @media (max-width: 600px) {
+    #top { gap: .5rem; padding: 1rem .75rem; }
+    #top #close { padding: 0 .5rem; }
+    #close .word, #pageIndicator .word { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -228,7 +252,7 @@
   <h1>Welches Buch lesen wir?</h1>
   <div id="books"></div>
   <button id="addBook">+ Neues Buch</button>
-  <button id="connectApp">Mit der Vorlese-App verbinden</button>
+  <button id="connectApp">👥 Gemeinsam lesen</button>
   <form id="newBookForm" hidden>
     <input id="newTitle" placeholder="Titel des Buchs" aria-label="Titel des neuen Buchs"
            autocomplete="off" enterkeyhint="done">
@@ -276,7 +300,7 @@
 
 <div id="roomDialog" class="overlay" hidden>
   <form class="sheet" id="roomForm" role="dialog" aria-modal="true" aria-labelledby="roomTitle">
-    <div class="sheetTop"><span id="roomTitle"></span><button type="button" id="roomCancel">Abbrechen</button></div>
+    <div class="sheetTop"><span id="roomTitle">Gemeinsam lesen</span><button type="button" id="roomCancel">Abbrechen</button></div>
     <p class="hint" id="roomHint"></p>
     <input id="roomCode" maxlength="6" autocomplete="off" autocapitalize="characters"
            spellcheck="false" aria-label="Lese-Code, 6 Zeichen">
@@ -291,10 +315,11 @@
 
 <main id="stage" hidden>
   <div id="top">
+    <button id="close" aria-label="Zurück zur Bibliothek">←<span class="word">Bibliothek</span></button>
+    <button id="sync">👥<span class="word">Gemeinsam lesen</span></button>
     <span class="title" id="bookTitle"></span>
-    <button id="sync">Vorlese-App</button>
+    <span id="pageIndicator"></span>
     <button id="editBook">Bearbeiten</button>
-    <button id="close">Andere Bücher</button>
   </div>
   <button id="next" aria-live="polite">
     <span class="now" id="now"></span>
@@ -304,7 +329,7 @@
   <div>
     <div id="status" role="status"></div>
     <div id="bottom">
-      <button id="back">Zurück</button>
+      <button id="back">‹ Voriger Moment</button>
       <div id="dots" aria-hidden="true"></div>
     </div>
   </div>
@@ -680,15 +705,35 @@ function goToEnd() {
   status("Die Vorlese-App hat das Buch zugeklappt.");
 }
 
+// Der Zustand der Verbindung liegt in der Füllung des Knopfs, wie in der App;
+// Vorlesegeräte hören ihn im Namen des Knopfs.
 function renderSync() {
   const b = $("sync");
   b.hidden = !book;
-  b.textContent = !room ? "Vorlese-App"
-    : room.state === "lost" ? "Verbindung weg"
-    : room.ended ? "Ende"
-    : room.page === null ? "verbindet …"
-    : "Seite " + room.page;
   b.className = !room ? "" : room.state === "lost" ? "warn" : room.page === null ? "" : "live";
+  b.setAttribute("aria-label", "Gemeinsam lesen" + (!room ? ""
+    : room.state === "lost" ? ": Verbindung weg"
+    : room.page === null ? ": verbindet …" : ": verbunden"));
+  renderPage();
+}
+
+// Mit der App ihre Seite und ihre Seitenzahl, nach dem Zuklappen «Ende». Ohne sie
+// die Seite des Moments, bei dem das Board steht; die Seitenzahl kennt nur die App.
+function renderPage() {
+  const el = $("pageIndicator");
+  el.hidden = !book;
+  if (!book) return;
+  if (room && room.ended) { el.textContent = "Ende"; return; }
+  let page = room ? room.page : null;
+  const pages = page === null ? null : room.pages;
+  for (let k = idx; page === null && k >= 0; k--)
+    if (typeof book.cues[k].page === "number") page = book.cues[k].page;
+  if (page === null) { el.textContent = "–"; return; }
+  const word = document.createElement("span");
+  word.className = "word";
+  word.textContent = "Seite";
+  // Das Leerzeichen trimmt die Darstellung weg (dort trennt das gap), Vorlesegeräte hören es.
+  el.replaceChildren(word, pages === null ? ` ${page}` : ` ${page} / ${pages}`);
 }
 
 // ---------- Momente mitten auf einer Seite (ADR 0009) ----------
@@ -902,7 +947,6 @@ function closeRoomDialog() {
 
 function renderRoomDialog() {
   const connected = !!room;
-  $("roomTitle").textContent = connected ? "Vorlese-App" : "Mit der Vorlese-App verbinden";
   $("roomHint").textContent = connected
     ? `Verbunden mit dem Lese-Code ${room.code}. ` + (room.ended
         ? "Die App hat das Buch zugeklappt."

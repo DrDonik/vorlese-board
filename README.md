@@ -67,10 +67,10 @@ von Hand geändert wurde. Bücher und eigene Sounds bleiben lokal, im Repo liege
   Name in mehreren Räumen oder Zonen vorkommt. `dynamic: true` startet die Szene dynamisch.
 - `flash`: Blitz, eine Szene für kurze Zeit. Er schaltet hart ein und kehrt nach `seconds`
   (1 bis 10, ohne Angabe 2) weich zum Licht des Moments zurück. Er gehört wie `oneshot`
-  nicht zum Zustand: «Zurück» und «Ab hier probelesen» spielen ihn nicht (ADR 0015).
+  nicht zum Zustand: «Voriger Moment» und «Ab hier probelesen» spielen ihn nicht (ADR 0015).
   Licht erzählt die Geschichte, Stimmung tragen Ton und Blitz (ADR 0014).
 - `loop`: Dateiname = Klangteppich überblenden, `null` = ausblenden, Feld weglassen = weiterlaufen lassen.
-- `oneshot`: Einzeleffekt, einmal abgespielt (nur vorwärts, nicht bei «Zurück»).
+- `oneshot`: Einzeleffekt, einmal abgespielt (nur vorwärts, nicht bei «Voriger Moment»).
 - `triggers`: Stichwörter für die spätere Spracherkennung (Stufe 2), derzeit ungenutzt.
 - Sounds liegen in `sounds/` (mp3, m4a, wav, aac). Die zwei `demo-*.wav` sind generierte Testtöne.
 - Die Szenennamen oben sind Platzhalter; `python3 server.py --scenes` zeigt die eigenen.
@@ -86,7 +86,7 @@ gelesen, folgt das Board dem Umblättern: beim Vorlesen über die Distanz schalt
 Licht im Kinderzimmer, ohne dass dort jemand tippt (ADR 0008, 0009). Stellt die App das Buch
 ins Regal, erkennt das Board das Ende und folgt nicht zurück auf Seite 1 (ADR 0011).
 
-1. Im Regal «Mit der Vorlese-App verbinden» wählen und den sechsstelligen Lese-Code eingeben.
+1. Im Regal «Gemeinsam lesen» wählen und den sechsstelligen Lese-Code eingeben.
    Beim ersten Mal fragt das Board, welches Buch im Regal gemeint ist, und merkt sich das
    in `sync.hash`. Danach findet derselbe Code das Buch von selbst.
 2. Im Editor bekommt jeder Moment die Frage «Wann». Dazu in der Vorlese-App auf die Seite
