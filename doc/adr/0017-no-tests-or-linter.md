@@ -10,7 +10,7 @@ Amends 0002
 
 ## Context
 
-The repository started with a test suite (`tests/test_server.py`) that ran the server against a simulated Hue bridge, while rule 8 of `AGENTS.md` already said not to propose tests or a linter. The two never ran anywhere automatically, and since #14 eight of the 39 tests failed without anyone noticing.
+The repository started with a test suite (`tests/test_server.py`) that ran the server against a simulated Hue bridge, while rule 8 of `AGENTS.md` already said not to propose tests or a linter. The suite never ran anywhere automatically, and since #14 eight of the 39 tests failed without anyone noticing.
 
 The rule comes from the maintainer's other projects, where tests were removed for a reason that applies here as well: once a suite exists, it becomes the yardstick of every review. Each new feature draws the question where its tests are, each test draws objections about missing edge cases, and both the coding agent and the review bot can invent edge cases without end. Review effort and token budget move from the feature to its tests. [ADR 8 of the Super Vorlese-App](https://github.com/DrDonik/super-vorlese-app/blob/main/doc/adr/0008-no-tests-or-linter.md) records the same decision.
 
