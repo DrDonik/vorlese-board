@@ -117,7 +117,3 @@ ins Regal, erkennt das Board das Ende und folgt nicht zurück auf Seite 1 (ADR 0
 Das Board liest nur mit und schreibt nie in den Raum. Der Lese-Code bleibt pro Buch auf
 dem Gerät gemerkt; ein Raum verfällt 45 Tage nach dem letzten Umblättern, dann braucht es
 einen neuen Code. Dieses Gerät braucht dafür Internet; ohne Verbindung bleibt alles wie zuvor.
-
-## Tests
-
-    python3 -m unittest discover tests

@@ -9,7 +9,7 @@ This web app's purpose is to accompany story reading for kids with light and sou
 5. When proposing functionalities or architecture, always think it through on the meta-level. The context of the UI element in question is usually the level where decisions fall out automatically. Why does the user interact with this element? How did they get here? What do they want to achieve? What does this element do in the entire in-app and out-of-app workflow? What other existing or not-yet-existing elements are related?
 6. Significant architecture and product-scope decisions are recorded as ADRs in `doc/adr/`; consult them for context and add a new one when making such a decision.
 7. Never jump straight to implementation. Always present your plan and the resulting user experience first and deliberate with the person requesting new code. Only implement new code when the requester explicitly states you should.
-8. Do not propose adding automated tests or a linter.
+8. Do not propose adding automated tests or a linter; see [ADR 0017](doc/adr/0017-no-tests-or-linter.md) for the reasoning.
 9. All new code will be carefully reviewed by an expert for correctness, security, edge cases, maintainability, and fit with the existing codebase. Implement with a goal of a single positive review and no iterations needed.
 
 # Secrets
